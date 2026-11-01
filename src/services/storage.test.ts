@@ -1,54 +1,65 @@
 import { describe, expect, it } from 'vitest';
-import { clearLocalState, loadLocalState, saveLocalState, STORAGE_KEY } from './storage';
-import type { LocalState } from '../types';
+import { createBrief } from '../rules/intake';
+import { generatePlan } from '../rules/generator';
+import { clearLocalState, LEGACY_KEY, loadLocalState, saveLocalState, STORAGE_KEY } from './storage';
 
-const emptyState: LocalState = { recentPlan: null, favorites: [], history: [] };
+type Store = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
-function memoryStorage(initial?: string) {
-  const values = new Map<string, string>(initial ? [[STORAGE_KEY, initial]] : []);
+function memoryStore(): Store {
+  const map = new Map<string, string>();
   return {
-    getItem: (key: string) => values.get(key) ?? null,
-    setItem: (key: string, value: string) => values.set(key, value),
-    removeItem: (key: string) => values.delete(key),
+    getItem: (key) => map.get(key) ?? null,
+    setItem: (key, value) => { map.set(key, value); },
+    removeItem: (key) => { map.delete(key); },
   };
 }
 
-describe('local storage', () => {
-  it('restores the latest plan and favorites', () => {
-    const state: LocalState = {
-      recentPlan: null,
-      favorites: [{
-        id: 'favorite', createdAt: '2026-10-30', setup: { type: 'music', people: 12, budget: 100, duration: 60, venue: 'hall', goal: '' },
-        selectedIds: ['music-lyric-puzzle'], materials: [], contingencyNote: '备用',
-      }],
-      history: [],
-    };
-    const storage = memoryStorage();
+const plan = generatePlan(createBrief('办一场 40 人的部门团建，预算 8000', { now: new Date('2026-11-01T10:00:00') }));
 
-    expect(saveLocalState(state, storage)).toBe(true);
-    expect(loadLocalState(storage)).toEqual({ data: state, error: null });
+describe('本地存档 v2', () => {
+  it('保存后可以原样读回', () => {
+    const store = memoryStore();
+    expect(saveLocalState({ recent: plan, favorites: [plan], history: [plan] }, store)).toBe(true);
+    const loaded = loadLocalState(store);
+    expect(loaded.error).toBeNull();
+    expect(loaded.data.recent?.id).toBe(plan.id);
+    expect(loaded.data.favorites).toHaveLength(1);
+    expect(loaded.data.history).toHaveLength(1);
   });
 
-  it('returns a fresh state and a readable error for malformed data', () => {
-    const result = loadLocalState(memoryStorage('{broken'));
-
-    expect(result.data).toEqual(emptyState);
-    expect(result.error).toContain('读取');
+  it('损坏的数据会回退为空状态而不是抛错', () => {
+    const store = memoryStore();
+    store.setItem(STORAGE_KEY, '{ not json');
+    const loaded = loadLocalState(store);
+    expect(loaded.error).not.toBeNull();
+    expect(loaded.data.history).toEqual([]);
   });
 
-  it('clears only this application data', () => {
-    const storage = memoryStorage(JSON.stringify(emptyState));
-
-    expect(clearLocalState(storage)).toBe(true);
-    expect(storage.getItem(STORAGE_KEY)).toBeNull();
+  it('过滤掉不符合 v2 结构的旧记录', () => {
+    const store = memoryStore();
+    store.setItem(STORAGE_KEY, JSON.stringify({ recent: { id: 'x', selectedIds: [] }, favorites: [], history: [{ foo: 1 }] }));
+    const loaded = loadLocalState(store);
+    expect(loaded.data.recent).toBeNull();
+    expect(loaded.data.history).toEqual([]);
   });
 
-  it('migrates existing saved plans into the history list', () => {
-    const plan: LocalState['recentPlan'] = {
-      id: 'old-plan', createdAt: '2026-10-30', setup: { type: 'music', people: 12, budget: 100, duration: 60, venue: 'hall', goal: '' },
-      selectedIds: [], materials: [], contingencyNote: '',
-    };
-    const result = loadLocalState(memoryStorage(JSON.stringify({ recentPlan: plan, favorites: [] })));
-    expect(result.data.history.map(item => item.id)).toEqual(['old-plan']);
+  it('不迁移 v1 的旧数据', () => {
+    const store = memoryStore();
+    store.setItem(LEGACY_KEY, JSON.stringify({ favorites: [{ id: 'old' }] }));
+    expect(loadLocalState(store).data.history).toEqual([]);
+  });
+
+  it('历史记录最多保留 30 条', () => {
+    const store = memoryStore();
+    const many = Array.from({ length: 40 }, (_, index) => ({ ...plan, id: `plan-${index}` }));
+    saveLocalState({ recent: many[0], favorites: [], history: many }, store);
+    expect(loadLocalState(store).data.history).toHaveLength(30);
+  });
+
+  it('清除后返回空状态', () => {
+    const store = memoryStore();
+    saveLocalState({ recent: plan, favorites: [plan], history: [plan] }, store);
+    expect(clearLocalState(store)).toBe(true);
+    expect(loadLocalState(store).data.history).toEqual([]);
   });
 });
