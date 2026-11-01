@@ -27,6 +27,7 @@ export interface RevisionResult {
 
 /** 界面回显：改了什么、连带影响了什么 */
 export interface RevisionOutcome {
+  previewOnly?: boolean;
   changes: RevisionChange[];
   impacts: string[];
   unknown?: string[];

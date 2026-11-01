@@ -492,22 +492,25 @@ export function createBriefFromCategory(categoryId: string, options: CreateBrief
 export function clearPreset(brief: EventBrief): EventBrief {
   const category = getCategory(brief.categoryId);
   const sources = { ...brief.sources };
+  const keep = (key: BriefFieldKey) => brief.sources[key] === 'user';
   (['title', 'people', 'budget', 'duration', 'venue', 'goal', 'audience', 'constraints'] as BriefFieldKey[])
     .forEach((key) => {
       if (sources[key] === 'preset') sources[key] = 'assumed';
     });
+  // 只清除预设带入的内容，保留用户主动修改或补充的字段。
+  sources.category = keep('category') ? 'user' : 'assumed';
   return refreshBrief({
     ...brief,
     presetId: undefined,
-    title: '',
-    people: category.defaultPeople ?? brief.people,
-    budget: category.defaultBudget ?? brief.budget,
-    durationMinutes: category.defaultDuration ?? brief.durationMinutes,
-    days: 1,
-    venue: category.defaultVenue ?? brief.venue,
-    goal: defaultGoal(category),
-    audience: category.defaultAudience ?? brief.audience,
-    constraints: '',
+    title: keep('title') ? brief.title : '',
+    people: keep('people') ? brief.people : (category.defaultPeople ?? brief.people),
+    budget: keep('budget') ? brief.budget : (category.defaultBudget ?? brief.budget),
+    durationMinutes: keep('duration') ? brief.durationMinutes : (category.defaultDuration ?? brief.durationMinutes),
+    days: keep('duration') ? brief.days : 1,
+    venue: keep('venue') ? brief.venue : (category.defaultVenue ?? brief.venue),
+    goal: keep('goal') ? brief.goal : defaultGoal(category),
+    audience: keep('audience') ? brief.audience : (category.defaultAudience ?? brief.audience),
+    constraints: keep('constraints') ? brief.constraints : '',
     sources,
   });
 }

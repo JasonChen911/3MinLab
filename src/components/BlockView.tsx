@@ -4,13 +4,36 @@ import { formatMoney } from '../rules/budget';
 import type { Block } from '../types';
 
 /** 方案内容块渲染：所有模块共用同一套块类型，新增模块无需新增渲染分支 */
-export default function BlockView({ block, onBudgetChange, onRowsChange }: {
+export default function BlockView({ block, onBudgetChange, onRowsChange, initiallyEditing = false, onTitleChange }: {
   block: Block;
+  initiallyEditing?: boolean;
+  onTitleChange?:(title:string)=>void;
   onBudgetChange?: (rowId: string, amount: number) => void;
   /** 传入后表格支持逐格编辑、删行与加行 */
   onRowsChange?: (rows: string[][]) => void;
 }) {
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(initiallyEditing);
+
+  // 复用表格编辑器，让预设带入的流程、岗位和文字也支持增删改。
+  if (onRowsChange && block.kind !== 'table') {
+    const editable = block.kind === 'budget'
+      ? { head: ['类别','科目','项目','金额','备注'], rows: block.rows.map(row=>[row.bucket,row.category,row.item,String(row.amount),row.note??'']) }
+      : block.kind === 'timeline'
+      ? { head: ['时间', '环节', '说明'], rows: block.entries.map((entry) => [entry.time, entry.title, entry.detail ?? '']) }
+      : block.kind === 'staff'
+      ? { head: ['岗位', '层级', '人数', '职责', '配置依据'], rows: block.rows.map((row) => [row.role, row.layer ?? '', String(row.count), row.duty, row.basis ?? '']) }
+      : block.kind === 'kpis'
+      ? { head: ['指标', '目标', '核算方式'], rows: block.rows.map((row) => [row.name, row.target, row.method]) }
+      : block.kind === 'text'
+      ? { head: ['内容'], rows: block.text.split('\n').map(line=>[line]) }
+      : { head: ['内容'], rows: block.items.map((item) => [item]) };
+    return <div className="block-group">
+      <button type="button" className="text-button table-edit-toggle" onClick={() => setEditing(!editing)}>{editing ? '完成内容编辑' : '编辑内容'}</button>
+      {editing
+        ? <BlockView key="editor" initiallyEditing block={{ kind: 'table', title: 'title' in block ? block.title : undefined, ...editable }} onRowsChange={onRowsChange} onTitleChange={onTitleChange}/>
+        : <BlockView key="preview" block={block}/>}
+    </div>;
+  }
 
   switch (block.kind) {
     case 'text':
@@ -100,7 +123,7 @@ export default function BlockView({ block, onBudgetChange, onRowsChange }: {
       };
       const removeRow = (rowIndex: number) => {
         if (!onRowsChange) return;
-        onRowsChange(block.rows.filter((_, index) => index !== rowIndex));
+        if(window.confirm('删除这一行内容？请确认此内容不再需要。'))onRowsChange(block.rows.filter((_, index) => index !== rowIndex));
       };
       const addRow = () => {
         if (!onRowsChange) return;
@@ -111,7 +134,7 @@ export default function BlockView({ block, onBudgetChange, onRowsChange }: {
 
       return <div className="block-group">
         <div className="block-title-row">
-          {block.title && <h5 className="block-title">{block.title}</h5>}
+          {block.title && (editing&&onTitleChange?<input className="module-title-input" aria-label="内容小标题" value={block.title} onChange={e=>onTitleChange(e.target.value)}/>:<h5 className="block-title">{block.title}</h5>)}
           {editable && <button type="button" className="table-edit-toggle" onClick={() => setEditing((value) => !value)}>
             {editing ? '完成编辑' : '编辑表格'}
           </button>}
@@ -124,7 +147,8 @@ export default function BlockView({ block, onBudgetChange, onRowsChange }: {
           <tbody>{block.rows.map((row, rowIndex) => <tr key={rowIndex}>
             {row.map((cell, cellIndex) => <td key={cellIndex} className={!editing && cellIndex === 0 ? 'strong-cell' : ''}>
               {editing
-                ? <input
+                ? <textarea
+                    rows={2}
                     className="cell-input"
                     value={cell}
                     aria-label={`${block.head[cellIndex] ?? '单元格'} 第 ${rowIndex + 1} 行`}

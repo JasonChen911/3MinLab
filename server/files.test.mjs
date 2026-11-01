@@ -1,0 +1,10 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import ExcelJS from 'exceljs';
+import {generateFile,importWorkbook,normalizeFile} from './files.mjs';
+const input={title:'田径运动会成绩公告',activityTitle:'中文测试活动',text:'这是中文活动资料。',headers:['姓名','项目','成绩'],rows:[['选手甲','100米','12.35']]};
+test('Word 输出真实 OOXML 文件，包含中文内容与表格',async()=>{const {bytes,mime}=await generateFile({...input,format:'docx'});assert.equal(bytes.subarray(0,2).toString(),'PK');assert.ok(mime.includes('wordprocessingml'));assert.ok(bytes.length>1000);});
+test('Excel 文件可再次打开，值保持中文和成绩',async()=>{const {bytes}=await generateFile({...input,format:'xlsx'});const book=new ExcelJS.Workbook();await book.xlsx.load(bytes);assert.equal(book.worksheets[0].getCell('A4').value,'选手甲');assert.equal(book.worksheets[0].getCell('C4').value,'12.35');assert.equal(book.worksheets[0].columns.length,3);});
+test('PDF 文件真实生成并嵌入中文字体，多页表格可导出',async()=>{const {bytes}=await generateFile({...input,rows:Array.from({length:80},()=>input.rows[0]),format:'pdf'});assert.equal(bytes.subarray(0,4).toString(),'%PDF');assert.ok(bytes.toString('latin1').includes('/FontFile'));assert.ok(bytes.length>10000);});
+test('Excel 批量导入，不执行或采用公式',async()=>{const book=new ExcelJS.Workbook();const sheet=book.addWorksheet('报名');sheet.addRow(['姓名']);sheet.addRow(['甲']);assert.deepEqual(await importWorkbook(await book.xlsx.writeBuffer()),[['姓名'],['甲']]);sheet.getCell('A2').value={formula:'1+1',result:2};const bytes=await book.xlsx.writeBuffer();await assert.rejects(()=>importWorkbook(bytes),/公式/);});
+test('导出拒绝伪造扩展名与无效表格',()=>{assert.throws(()=>normalizeFile({...input,format:'exe'}));assert.throws(()=>normalizeFile({...input,format:'pdf',rows:['invalid']}));});

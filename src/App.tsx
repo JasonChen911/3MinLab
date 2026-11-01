@@ -5,12 +5,23 @@ import PlanView from './components/PlanView';
 import PresetGallery from './components/PresetGallery';
 import HistoryPanel from './components/HistoryPanel';
 import SettingsPanel from './components/SettingsPanel';
-import { AiClarify, AiModuleAssist, requestRevisionPatch } from './components/AiAssist';
+import { AiClarify, AiModuleAssist } from './components/AiAssist';
 import RevisionBar from './components/RevisionBar';
+import EmergencyPanel from './components/EmergencyPanel';
+import WorkspaceHub from './workbench/WorkspaceHub';
+import WelcomeGate from './projects/WelcomeGate';
+import ProjectList from './projects/ProjectList';
+import { projectRepository, migrateLegacyProjects, saveProjectParts } from './projects/repository';
+import type { ActivityProject } from './projects/model';
+import { uid } from './workbench/model';
+import { saveWorkspace } from './workbench/storage';
+import './projects/projects.css';
+import { applyEmergency, type EmergencyId } from './rules/emergency';
 import { buildPlanMarkdown, buildPromotionPost } from './rules/export';
+import { editPlanRows } from './rules/editPlan';
 import { editBudgetRow } from './rules/budget';
 import { generatePlan } from './rules/generator';
-import { applyPatch, diffPlans, reviseBrief, type RevisionOutcome } from './rules/revise';
+import { type RevisionOutcome } from './rules/revise';
 import { applyAnswer, clearPreset, createBrief, createBriefFromCategory, createBriefFromPreset, nextQuestions, refreshBrief, updateField } from './rules/intake';
 import { CATEGORIES } from './data/taxonomy';
 import { loadApiKey } from './services/apiKey';
@@ -34,7 +45,7 @@ const EXAMPLES = [
 
 export default function App() {
   const [saved, setSaved] = useState(loadLocalState);
-  const [screen, setScreen] = useState<'home' | 'workspace'>(() => (window.location.hash === '#workspace' ? 'workspace' : 'home'));
+  const [screen, setScreen] = useState<'welcome' | 'home' | 'workspace' | 'projects'>(() => (window.location.hash.startsWith('#workspace') ? 'workspace' : window.location.hash === '#projects' ? 'projects' : ['#home','#presets'].includes(window.location.hash) ? 'home' : 'welcome'));
   const [stage, setStage] = useState<'intake' | 'plan'>(() => (saved.data.recent ? 'plan' : 'intake'));
   const [idea, setIdea] = useState('');
   const [brief, setBrief] = useState<EventBrief | null>(saved.data.recent?.brief ?? null);
@@ -47,16 +58,51 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [apiKey, setApiKey] = useState(loadApiKey);
   const [generating, setGenerating] = useState(false);
+  const [assistantRequest,setAssistantRequest]=useState<{id:string;text:string}|null>(null);
+  const [undoPlan, setUndoPlan] = useState<EventPlan | null>(null);
   const ideaRef = useRef<HTMLTextAreaElement>(null);
+  const [projectId,setProjectId]=useState(() => window.location.hash.split('/')[1] || saved.data.recent?.id || '');
+  const [projectSaveStatus,setProjectSaveStatus]=useState('');
+  const [storageReady,setStorageReady]=useState(false);
+  const restoringProject=useRef(false);
+  const latestSave=useRef(0);
+  useEffect(() => {
+    let alive=true;
+    void migrateLegacyProjects().then(async()=> {
+      const id=window.location.hash.split('/')[1];
+      if(id){const project=await projectRepository.get(id);if(project&&alive)restoreProjectState(project);else if(alive){setBrief(null);setPlan(null);setProjectId('');setProjectSaveStatus('项目不存在，请从“我的活动”重新选择。');}}
+      if(alive)setStorageReady(true);
+    }).catch(error=>{if(alive){setProjectSaveStatus(error.message);setStorageReady(true);}});
+    return()=>{alive=false;};
+  },[]);
+  function restoreProjectState(project:ActivityProject) {
+    restoringProject.current=true;
+    if(project.workspace&&project.plan)saveWorkspace(project.workspace);
+    setProjectId(project.id);setBrief(project.draft);setIdea(project.draft.idea);setPlan(project.plan??null);setStage(project.stage==='plan'&&project.plan?'plan':'intake');setAsked([]);setAiQuestions([]);setUndoPlan(null);setProjectSaveStatus(`最近保存：${new Date(project.updatedAt).toLocaleString('zh-CN')}`);
+    window.setTimeout(()=>{restoringProject.current=false;},0);
+  }
+  function openProject(project:ActivityProject) {restoreProjectState(project);window.location.hash=`workspace/${project.id}`;setScreen('workspace');window.scrollTo(0,0);}
+  async function saveCurrentProject(checkpoint=false) {
+    if(!brief||!projectId||restoringProject.current)return;
+    const sequence=++latestSave.current;setProjectSaveStatus('正在保存活动…');
+    try {let stored=await saveProjectParts(projectId,{draft:brief,plan:plan??undefined,stage});if(checkpoint){stored=await projectRepository.update(projectId,current=>({...current!,versions:[...current!.versions,{id:uid(),createdAt:new Date().toISOString(),reason:'组织者手动保存检查点',source:'user' as const,afterFingerprint:JSON.stringify([current!.plan,current!.workspace]),before:{plan:current!.plan,draft:current!.draft,workspace:current!.workspace},afterSummary:['保存当前方案、草稿和工具资料，作为可恢复的检查点'],documentChanges:[]}].slice(-20)}));}if(sequence===latestSave.current)setProjectSaveStatus(`已保存：${new Date(stored.updatedAt).toLocaleTimeString('zh-CN')}`);}
+    catch(error){if(sequence===latestSave.current)setProjectSaveStatus(error instanceof Error?error.message:'活动保存失败，请导出备份。');}
+  }
+  useEffect(()=>{if(storageReady&&screen==='workspace'&&projectId)window.history.replaceState(null,'',`#workspace/${projectId}`);},[storageReady,screen,projectId]);
+  useEffect(()=>{if(storageReady&&screen==='workspace'&&brief&&projectId&&!restoringProject.current)void saveCurrentProject();},[storageReady,screen,brief,plan,stage,projectId]);
+
 
   useEffect(() => {
     const syncScreen = () => {
-      setScreen(window.location.hash === '#workspace' ? 'workspace' : 'home');
-      window.scrollTo(0, 0);
+      setScreen(window.location.hash.startsWith('#workspace') ? 'workspace' : window.location.hash === '#projects' ? 'projects' : ['#home','#presets'].includes(window.location.hash) ? 'home' : 'welcome');
+      const id=window.location.hash.startsWith('#workspace/')?window.location.hash.split('/')[1]:'';
+      if(id&&id!==projectId)void projectRepository.get(id).then(project=>{if(project)restoreProjectState(project);});
+      if (window.location.hash === '#presets') { window.requestAnimationFrame(() => document.getElementById('presets')?.scrollIntoView({ block: 'start' })); }
+      else window.scrollTo(0, 0);
     };
     window.addEventListener('hashchange', syncScreen);
     return () => window.removeEventListener('hashchange', syncScreen);
-  }, []);
+  }, [projectId]);
 
   // 可分享入口：?idea=一句话想法 预填；&start=1 直接进入需求确认；?preset=预设 ID 直接带预设起稿
   useEffect(() => {
@@ -88,7 +134,7 @@ export default function App() {
     window.setTimeout(() => setToast(''), 4200);
   }
 
-  function navigateTo(next: 'home' | 'workspace') {
+  function navigateTo(next: 'welcome' | 'home' | 'workspace' | 'projects') {
     window.location.hash = next;
     setScreen(next);
     window.scrollTo(0, 0);
@@ -98,6 +144,7 @@ export default function App() {
     const trimmed = text.trim();
     if (!trimmed) return;
     const nextBrief = createBrief(trimmed);
+    setProjectId(uid());
     setIdea(trimmed);
     setBrief(nextBrief);
     setAsked([]);
@@ -112,6 +159,7 @@ export default function App() {
   /** 从预设模板起稿：进入需求确认，字段已按预设填好且可改 */
   function startFromPreset(presetId: string) {
     const nextBrief = createBriefFromPreset(presetId);
+    setProjectId(uid());
     setIdea(nextBrief.idea);
     setBrief(nextBrief);
     setAsked([]);
@@ -126,6 +174,7 @@ export default function App() {
   /** 只选类型：不套预设，其余按该类活动的常见值补成假设 */
   function startFromCategory(categoryId: string) {
     const nextBrief = createBriefFromCategory(categoryId);
+    setProjectId(uid());
     setIdea(nextBrief.idea);
     setBrief(nextBrief);
     setAsked([]);
@@ -165,9 +214,16 @@ export default function App() {
 
   function generate() {
     if (!brief) return;
+    if (brief.sources.category === 'assumed') {
+      announce('请先选择活动类型，或确认使用通用框架');
+      return;
+    }
+    if(plan){const baseline=generatePlan(plan.brief);const manual=plan.modules.some(module=>JSON.stringify(module.blocks)!==JSON.stringify(baseline.modules.find(item=>item.id===module.id)?.blocks));if(manual&&!window.confirm('重新生成会替换当前方案中的手动编辑。请先保存检查点或导出备份；确定按已确认的新需求重新生成？'))return;}
     setGenerating(true);
     const fresh = generatePlan(brief);
-    const next = plan ? { ...fresh, id: plan.id } : fresh;
+    const next = { ...fresh, id: projectId || plan?.id || fresh.id };
+    setProjectId(next.id);
+    window.history.replaceState(null,'',`#workspace/${next.id}`);
     setPlan(next);
     setStage('plan');
     setActiveModule('basic');
@@ -224,31 +280,33 @@ export default function App() {
   /** 表格行编辑：任务、风险、物资等表格支持逐格改、删行、加行 */
   function updateTableRows(moduleId: ModuleId, blockIndex: number, rows: string[][]) {
     if (!plan) return;
-    const modules = plan.modules.map((module) => module.id !== moduleId ? module : {
-      ...module,
-      blocks: module.blocks.map((block, index) => index !== blockIndex || block.kind !== 'table' ? block : { ...block, rows }),
-    });
-    const next: EventPlan = { ...plan, modules };
+    const next=editPlanRows(plan,moduleId,blockIndex,rows);
     setPlan(next);
     persist(next, true);
   }
 
+  function handleEmergency(id: EmergencyId, detail: string) {
+    if (!plan) return;
+    setUndoPlan(plan);
+    const next = applyEmergency(plan, id, detail);
+    setPlan(next);
+    persist(next, true);
+    announce('应急调整已写入活动流程、执行安排和风险管理，可继续逐项编辑');
+  }
+
+  function undoLastChange() {
+    if (!undoPlan || undoPlan.id !== plan?.id) return;
+    setPlan(undoPlan);
+    setBrief(undoPlan.brief);
+    persist(undoPlan, true);
+    setUndoPlan(null);
+    announce('已撤销上次调整');
+  }
+
   async function applyRevision(text: string): Promise<RevisionOutcome | null> {
-    if (!plan || !brief) return null;
-    // 先走本地规则；听不懂再让 AI 兜底解析（无 Key 时直接跳过）
-    let result = reviseBrief(brief, text);
-    if (!result.changes.length) {
-      const patch = await requestRevisionPatch(text, brief, apiKey);
-      if (patch) result = applyPatch(brief, patch);
-    }
-    if (!result.changes.length) return { changes: [], impacts: [], unknown: result.unknown };
-    const regenerated = { ...generatePlan(result.brief), id: plan.id };
-    const impacts = diffPlans(plan, regenerated);
-    setBrief(result.brief);
-    setPlan(regenerated);
-    setActiveModule('basic');
-    persist(regenerated);
-    return { changes: result.changes, impacts };
+    if(!plan)return null;
+    setAssistantRequest({id:uid(),text});
+    return {changes:[],impacts:['已在策划助手打开修改建议预览，确认后才更新方案。'],previewOnly:true};
   }
 
   function downloadMarkdown() {
@@ -277,6 +335,7 @@ export default function App() {
   }
 
   function openSavedPlan(target: EventPlan) {
+    setProjectId(target.id);
     setPlan(target);
     setBrief(target.brief);
     setStage('plan');
@@ -303,7 +362,7 @@ export default function App() {
   }
 
   function resetData() {
-    if (!window.confirm('清除这台设备保存的方案与收藏？')) return;
+    if (!window.confirm('清除旧版方案记录与收藏？新的活动项目、附件和工具资料不会删除，可在“我的活动”中管理。')) return;
     clearLocalState();
     setSaved({ data: { recent: null, favorites: [], history: [] }, error: null });
     setPlan(null);
@@ -311,7 +370,7 @@ export default function App() {
     setStage('intake');
     setShowHistory(false);
     navigateTo('home');
-    announce('本地数据已清除');
+    announce('旧方案记录已清除，活动项目与附件保留');
   }
 
   return <div className="shell">
@@ -321,6 +380,7 @@ export default function App() {
         <span>通用策划<br/><strong>活动实验室</strong></span>
       </a>
       <div className="top-right">
+        <button className="project-list-link" onClick={() => navigateTo('projects')}>我的活动</button>
         <span className="tag">GENERAL EVENT PLANNER</span>
         <button className="settings-trigger" onClick={() => setShowSettings(true)}>
           <Settings size={17}/> 设置{apiKey ? <span className="settings-dot" aria-label="已设置 API Key"/> : null}
@@ -328,11 +388,14 @@ export default function App() {
         <button className="record-trigger" onClick={() => setShowHistory(true)}>
           <History size={17}/> 方案记录 <span>{saved.data.history.length}</span>
         </button>
-        <button className="subtle" onClick={resetData} title="清除本地数据"><Trash2 size={16}/> 清除数据</button>
+        <button className="subtle" onClick={resetData} title="清除旧方案记录，不删除活动项目和附件"><Trash2 size={16}/> 清除旧记录</button>
       </div>
     </header>
 
-    <main id="home" className={screen === 'home' ? 'home-page' : 'workspace-page'}>
+    <main id="home" className={screen === 'home' || screen === 'welcome' ? 'home-page' : 'workspace-page'}>
+      {screen === 'projects' && <ProjectList onCreate={() => navigateTo('home')} onOpen={openProject} onRemoved={id=>{if(id===projectId){setProjectId('');setBrief(null);setPlan(null);}setSaved(loadLocalState());}}/>}
+      {screen === 'welcome' && <WelcomeGate onEnter={() => navigateTo('home')} onProjects={() => navigateTo('projects')}/>}
+      {screen === 'home' && <div className="entry-animation project-page"><button className="project-list-link" onClick={() => navigateTo('projects')}>我的活动 · 继续已有项目</button></div>}
       {screen === 'home' && <section className="hero hero-input">
         <div className="hero-copy">
           <div className="eyebrow"><span className="pulse"/> ANY EVENT, PLANNED</div>
@@ -380,7 +443,9 @@ export default function App() {
         }}
       />}
 
-      {screen === 'workspace' && <section id="workspace" className="workspace">
+      {screen === 'workspace' && !storageReady && <div className="project-page panel" role="status">正在恢复活动项目…</div>}
+      {screen === 'workspace' && storageReady && <section id="workspace" className="workspace">
+        <div className="draft-save-strip"><button onClick={() => navigateTo('projects')}>返回我的活动</button><button onClick={() => void saveCurrentProject(true)} disabled={!brief || !projectId}>保存活动</button><span role="status">{projectSaveStatus}</span></div>
         <div className="workspace-head">
           <div>
             <button className="workspace-back" onClick={() => navigateTo('home')}><ArrowLeft size={16}/> 返回首页</button>
@@ -407,7 +472,7 @@ export default function App() {
           />
         </div>}
 
-        {stage === 'plan' && plan && <PlanView
+        {stage === 'plan' && plan && <WorkspaceHub key={plan.id} plan={plan} apiKey={apiKey} assistantRequest={assistantRequest} onRestoreProject={openProject} onPlanChange={next=>{setPlan(next);setBrief(next.brief);persist(next,true);}}><PlanView
           plan={plan}
           active={activeModule}
           onActive={setActiveModule}
@@ -420,9 +485,16 @@ export default function App() {
           onAdjust={() => { setBrief(plan.brief); setStage('intake'); window.scrollTo(0, 0); }}
           onBudgetChange={updateBudgetRow}
           onTableRows={updateTableRows}
-          revisionPanel={<RevisionBar onRevise={applyRevision}/>}
+          onPlanMeta={patch=>{const next={...plan,...patch,brief:patch.title!==undefined?{...plan.brief,title:patch.title,sources:{...plan.brief.sources,title:'user' as const}}:plan.brief};setPlan(next);setBrief(next.brief);persist(next,true);}}
+          onModuleMeta={(moduleId,patch)=>{const next={...plan,modules:plan.modules.map(module=>module.id===moduleId?{...module,...patch}:module)};setPlan(next);persist(next,true);}}
+          onBlockTitle={(moduleId,index,title)=>{const next={...plan,modules:plan.modules.map(module=>module.id===moduleId?{...module,blocks:module.blocks.map((block,i)=>i===index&&block.kind!=='text'?{...block,title}:block)}:module)};setPlan(next);persist(next,true);}}
+          revisionPanel={<>
+            {undoPlan?.id === plan.id && <button className="text-button" onClick={undoLastChange}>撤销上次调整（恢复调整前版本）</button>}
+            <RevisionBar onRevise={applyRevision}/>
+            <EmergencyPanel onApply={handleEmergency}/>
+          </>}
           aiPanel={<AiModuleAssist plan={plan} moduleId={activeModule} apiKey={apiKey} onApply={applyAiModule}/>}
-        />}
+        /></WorkspaceHub>}
 
         {!brief && !plan && <div className="panel empty-plan">
           <h3>还没有活动想法</h3>

@@ -31,7 +31,16 @@ beforeAll(() => {
 });
 
 describe('整页渲染', () => {
+  it('默认欢迎页只展示介绍和开始入口，保留原视觉容器', () => {
+    (globalThis as unknown as { window: { location: { hash: string } } }).window.location.hash = '';
+    const html = renderToString(<App/>);
+    expect(html).toContain('让每一场活动');
+    expect(html).toContain('活动策划欢迎页');
+    expect(html).not.toContain('描述你的活动想法');
+    expect(html).toContain('hero-art');
+  });
   it('首页渲染想法输入、分类入口与预设卡片', () => {
+    (globalThis as unknown as { window: { location: { hash: string } } }).window.location.hash = '#home';
     const html = renderToString(<App/>);
     expect(html).toContain('什么活动都能策划');
     expect(html).toContain('描述你的活动想法');
@@ -48,8 +57,6 @@ describe('整页渲染', () => {
     expect(store.get(STORAGE_KEY)).toBeTruthy();
 
     const html = renderToString(<App/>);
-    expect(html).toContain('方案模块');
-    expect(html).toContain(plan.title);
-    expect(html).toContain('经费预算');
+    expect(html).toContain('正在恢复活动项目');
   });
 });

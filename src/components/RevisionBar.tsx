@@ -35,7 +35,7 @@ export default function RevisionBar({ onRevise }: { onRevise: (text: string) => 
       <span className="revise-icon"><Wand2 size={17}/></span>
       <div>
         <strong>用一句话修改方案</strong>
-        <p>改需求，不是改文字：流程、预算、人员、物资与风险会一起重算。</p>
+        <p>先在策划助手预览差异，再选择应用。手动内容默认保留；仅改文字可用各章节的“逐行编辑本章”。</p>
       </div>
     </div>
 
@@ -64,7 +64,7 @@ export default function RevisionBar({ onRevise }: { onRevise: (text: string) => 
         </p>
       : <div className="revise-result" role="status" aria-live="polite">
           <div className="revise-changes">
-            <h5><Check size={14}/> 已应用</h5>
+            <h5><Check size={14}/> {result.previewOnly?'等待确认':'已应用'}</h5>
             <ul>{result.changes.map((change) => <li key={change.field}>
               <strong>{change.field}</strong>
               <span>{change.before} → {change.after}</span>

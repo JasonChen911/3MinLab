@@ -1,0 +1,4 @@
+import {describe,it,expect} from 'vitest';
+import {existsSync,readFileSync} from 'node:fs';import {resolve} from 'node:path';
+import {PRESETS} from './presets';import {PRESET_IMAGES,FALLBACK_PRESET_IMAGE} from './presetImages';
+describe('本地模板图片完整性',()=>{it('全部预设拥有不同的实际本地图片及替代描述',()=>{expect(new Set(PRESETS.map(p=>PRESET_IMAGES[p.id]?.src)).size).toBe(PRESETS.length);for(const preset of PRESETS){const image=PRESET_IMAGES[preset.id];expect(image?.alt.length).toBeGreaterThan(5);const file=resolve('public'+image.src);expect(existsSync(file)).toBe(true);const bytes=readFileSync(file);expect(bytes.subarray(0,4).toString()).toBe('RIFF');expect(bytes.subarray(8,12).toString()).toBe('WEBP');expect(image.source).toContain('https://www.pexels.com/photo/');expect(image.author.length).toBeGreaterThan(2);}expect(existsSync(resolve('public'+FALLBACK_PRESET_IMAGE))).toBe(true);});});

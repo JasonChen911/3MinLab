@@ -1,0 +1,18 @@
+/* Scoped enhancements only. Original global design remains in style.css. */
+.preset-main{padding:0;overflow:hidden;display:flex;flex-direction:column;align-items:stretch;gap:0}
+.preset-image{display:block;width:100%;height:auto;aspect-ratio:16/9;object-fit:cover;flex-shrink:0;background:#eef2e6}
+.preset-card-copy{padding:20px;display:flex;flex-direction:column;align-items:flex-start;flex:1;min-height:195px}
+.preset-card-copy .preset-go{margin-top:auto;padding-top:12px}
+.preset-card-copy .preset-badge{display:inline-flex;align-items:center;gap:6px}
+.preset-card-copy .preset-badge svg{flex:none}
+.preset-card-copy .preset-metrics{margin-top:12px}
+.preset-card{overflow:hidden}
+.preset-card .preset-detail{max-width:100%}
+.preset-photo-credit{font-size:10px;line-height:1.7;color:#82907d;margin:12px 0 0}
+.preset-photo-credit a{text-decoration:underline;text-underline-offset:3px}
+.preset-grid{grid-template-columns:repeat(3,minmax(0,1fr));align-items:start}
+@media(max-width:1000px){.preset-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:620px){.preset-grid{grid-template-columns:1fr}.preset-card-copy{padding:18px;min-height:185px}.preset-image{width:100%;height:auto}}
+/* New module surfaces use the existing site's font and controls. */
+.wb-hub button{font:inherit;cursor:pointer;padding:9px 12px;border:1px solid #dce5d2;border-radius:8px;background:#fbfcf7;color:#4b6544;display:inline-flex;align-items:center;justify-content:center;gap:7px;font-size:13px;min-height:38px}
+.wb-hub button:hover:not(:disabled){background:#f1f6e8}.wb-hub button.primary{background:#536c4a;color:#fff;border-color:#536c4a}.wb-hub button.danger,.wb-hub .row-delete{color:#b74739;background:#fff9f7;border-color:#edc9c1}.wb-hub button:focus-visible{outline:2px solid #9cbd6f;outline-offset:2px}.wb-hub .wb-main-tabs button.active{color:#536c4a!important;border-bottom-color:#536c4a!important}.wb-hub .wb-card-foot button{color:#536c4a!important;background:#f1f6e8!important}.wb-hub .wb-doc-list>button.active{color:#536c4a!important;background:#f1f6e8!important;border-color:#d4e2c2!important}

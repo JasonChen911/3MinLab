@@ -1,0 +1,10 @@
+import { describe,it,expect } from 'vitest';
+import { DEFAULT_SPORTS_RULES, fixtures, judgeRanking, moveRow, orderedAgenda, roundRobin, sportsIssues, sportsStandings } from './calculations';
+describe('其他场景确定性计算',()=>{
+ it('单循环每对仅一场，奇数队轮空',()=>{const matches=roundRobin(['甲','乙','丙']);expect(matches).toHaveLength(3);expect(new Set(matches.map(m=>[m.home,m.away].sort().join())) .size).toBe(3);});
+ it('足球胜平负积分，篮球平分不按田径积分处理',()=>{const rules={...DEFAULT_SPORTS_RULES};const matches=fixtures(['甲','乙'],rules).map(m=>({...m,scoreHome:'2',scoreAway:'2',status:'完赛'}));expect(sportsStandings(['甲','乙'],matches,rules)[0].points).toBe(1);expect(sportsIssues(matches,{...rules,sport:'basketball'}).length).toBe(1);});
+ it('淘汰赛自动晋级，结果修正后下一轮不复用旧成绩',()=>{const rules={...DEFAULT_SPORTS_RULES,format:'knockout' as const};let matches=fixtures(['甲','乙','丙','丁'],rules).map(m=>({...m,status:'完赛',scoreHome:'2',scoreAway:'0'}));matches=fixtures(['甲','乙','丙','丁'],rules,matches);expect(matches).toHaveLength(3);const final=matches[2];expect(final.home).toBe('甲');matches[0]={...matches[0],scoreHome:'0',scoreAway:'2'};expect(fixtures(['甲','乙','丙','丁'],rules,matches)[2].home).not.toBe(final.home);});
+ it('节目上移与时长联动，未审核节目不进入正式节目单',()=>{const rows=[{id:'a',f0:'甲',f3:'5',f4:'通过'},{id:'b',f0:'乙',f3:'10',f4:'通过'},{id:'c',f0:'丙',f3:'99',f4:'待审核'}];const next=moveRow(rows,1,-1);expect(orderedAgenda(next,'09:00',true)[0].row.f0).toBe('乙');expect(orderedAgenda(next,'09:00',true).at(-1)?.end).toBe('09:15');});
+ it('报告时长生成会议议程，空报告不造假',()=>{expect(orderedAgenda([])).toEqual([]);expect(orderedAgenda([{id:'a',f0:'真实报告',f4:'30'}])[0].end).toBe('09:30');});
+ it('评审按权重与满分归一，缺失或超范围成绩不排名',()=>{const criteria=[{id:'c',name:'创新',weight:1,max:10}];const scores=[{id:'s',project:'p',judge:'评委',criterion:'c',value:'8',absent:false}];expect(judgeRanking(['p'],criteria,scores,1,'exclude','shared')[0].score).toBe(80);expect(judgeRanking(['p'],criteria,scores,2,'exclude','shared')[0].pending).toBe(true);expect(judgeRanking(['p'],criteria,[{...scores[0],value:'99'}],1,'exclude','shared')[0].rank).toBe(0);});
+});

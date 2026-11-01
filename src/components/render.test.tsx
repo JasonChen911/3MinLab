@@ -65,6 +65,7 @@ describe('界面渲染冒烟测试', () => {
     />);
     expect(html).toContain('还没能判断出活动类型');
     expect(html).toContain('继续用通用框架');
+    expect(html).toMatch(/disabled="">请先确认活动类型/);
   });
 
   it('首页预设区渲染 10 个分类入口与预设卡片', () => {
@@ -74,6 +75,8 @@ describe('界面渲染冒烟测试', () => {
     expect(html).toContain('自定义活动类');
     expect(html).toContain('新生迎新活动');
     expect(html).toContain('用这个预设');
+    expect(html.match(/<article class="preset-card/g)?.length).toBe(12);
+    expect(html).toContain('企业年会与颁奖典礼');
   });
 
   it('方案工作台渲染 12 个模块与关键表格', () => {
@@ -119,7 +122,8 @@ describe('界面渲染冒烟测试', () => {
       onAdjust={noop}
       onTableRows={noop}
     />);
-    expect(html).toContain('编辑表格');
+    expect(html).toContain('逐行编辑整份方案');
+    expect(html).toContain('逐行编辑本章');
     expect(html).toContain('执行安排');
   });
 });

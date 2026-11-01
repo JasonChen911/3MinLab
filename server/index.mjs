@@ -4,6 +4,9 @@ import { join, resolve, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assistWithDeepSeek } from './ai.mjs';
 import { selectApiKey } from './api-key.mjs';
+import { generateFile, importWorkbook } from './files.mjs';
+import { generateDocumentAI } from './document-ai.mjs';
+import { requestAdjustment } from './assistant-ai.mjs';
 
 const root = resolve(fileURLToPath(new URL('../dist/', import.meta.url)));
 const port = Number(process.env.API_PORT || 8787);
@@ -20,7 +23,7 @@ async function readJson(req) {
   let data = '';
   for await (const chunk of req) {
     data += chunk.toString();
-    if (data.length > 40000) throw new Error('请求过大');
+    if (data.length > 2000000) throw new Error('请求过大');
   }
   try { return JSON.parse(data); } catch { throw new Error('请求不是有效 JSON'); }
 }
@@ -32,6 +35,24 @@ const server = createServer(async (req, res) => {
     const origin = req.headers.origin;
     if (origin && !new Set([`http://127.0.0.1:5173`, `http://localhost:5173`, `http://${host}:${port}`]).has(origin)) {
       return send(res, 403, { error: '来源不受支持' });
+    }
+    if (pathname === '/api/files/export' && req.method === 'POST') {
+      try { const payload=await readJson(req); const result=await generateFile(payload);res.writeHead(200,{'Content-Type':result.mime,'Cache-Control':'no-store','Content-Disposition':`attachment; filename="activity-document.${payload.format}"`});return res.end(result.bytes); }
+      catch(error){return send(res,400,{error:error.message});}
+    }
+    if(pathname==='/api/files/import-xlsx'&&req.method==='POST') {
+      try {const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>5000000)throw new Error('Excel 文件不能超过 5 MB');chunks.push(chunk);}return send(res,200,{rows:await importWorkbook(Buffer.concat(chunks))});}
+      catch(error){return send(res,400,{error:'Excel 导入失败：'+error.message});}
+    }
+    if(pathname==='/api/ideas/convert'&&req.method==='POST')return send(res,501,{code:'NOT_IMPLEMENTED',error:'组织者思路文档转策划接口已预留，尚未接入模型与文档解析。当前方案未修改。'});
+    if(pathname==='/api/assistant/status'&&req.method==='GET')return send(res,200,{configured:!!process.env.DEEPSEEK_API_KEY,provider:process.env.AI_PROVIDER||'DeepSeek',model:process.env.AI_MODEL||'deepseek-flash'});
+    if(pathname==='/api/assistant/adjust'&&req.method==='POST') {
+      try {const key=selectApiKey(req.headers['x-deepseek-api-key'],process.env.DEEPSEEK_API_KEY);const now=Date.now();while(recentRequests.length&&recentRequests[0]<now-60000)recentRequests.shift();if(recentRequests.length>=6)return send(res,429,{error:'请求过于频繁，请稍后重试'});recentRequests.push(now);return send(res,200,await requestAdjustment(await readJson(req),key));}
+      catch(error){return send(res,error.code==='NOT_CONFIGURED'?503:error.name==='TimeoutError'?504:400,{error:error.message,...(error.code?{code:error.code}:{})});}
+    }
+    if(pathname==='/api/documents/ai'&&req.method==='POST') {
+      try {const key=selectApiKey(req.headers['x-deepseek-api-key'],process.env.DEEPSEEK_API_KEY);const now=Date.now();while(recentRequests.length&&recentRequests[0]<now-60000)recentRequests.shift();if(recentRequests.length>=6)return send(res,429,{error:'请求过于频繁，请稍后再试'});recentRequests.push(now);return send(res,200,await generateDocumentAI(await readJson(req),key));}
+      catch(error){return send(res,error.name==='TimeoutError'?504:400,{error:error.message});}
     }
     if (pathname === '/api/ai/status' && req.method === 'GET') {
       return send(res, 200, { available: !!process.env.DEEPSEEK_API_KEY, model: 'deepseek-flash', modes: ['clarify', 'enrich', 'revise'] });

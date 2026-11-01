@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { PRESETS, getPreset, presetsInGroup } from './presets';
 import { GROUPS, getCategory } from './taxonomy';
-import { clearPreset, createBrief, createBriefFromPreset } from '../rules/intake';
+import { clearPreset, createBrief, createBriefFromPreset, updateField } from '../rules/intake';
 import { generatePlan } from '../rules/generator';
 import type { EventPlan, ModuleId } from '../types';
 
@@ -92,7 +92,21 @@ describe('预设起稿', () => {
     expect(cleared.presetId).toBeUndefined();
     expect(cleared.people).toBe(category.defaultPeople);
     expect(cleared.sources.people).toBe('assumed');
-    expect(cleared.sources.category).toBe('preset');
+    expect(cleared.sources.category).toBe('assumed');
+  });
+
+  it('清除预设保留用户修改与补充，并要求重新确认类型', () => {
+    let brief = createBriefFromPreset('preset-welcome', { now: NOW });
+    brief = updateField(brief, 'people', '123');
+    brief = updateField(brief, 'title', '我们自己的迎新');
+    brief = updateField(brief, 'constraints', '需要手语翻译');
+    const cleared = clearPreset(brief);
+    expect(cleared.people).toBe(123);
+    expect(cleared.title).toBe('我们自己的迎新');
+    expect(cleared.constraints).toBe('需要手语翻译');
+    expect(cleared.sources.people).toBe('user');
+    expect(cleared.sources.category).toBe('assumed');
+    expect(cleared.presetId).toBeUndefined();
   });
 
   it('判断不出类型时保留「假设」来源，交给界面询问', () => {

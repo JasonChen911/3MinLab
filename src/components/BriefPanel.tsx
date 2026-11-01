@@ -62,7 +62,7 @@ export default function BriefPanel({ brief, questions, onChange, onDaysChange, o
     </div>}
 
     <p className="brief-lead">
-      我从你的描述里读出了下面这些信息。<strong>带「假设」的都是我替你填的</strong>，点开就能改；不改也可以直接生成方案。
+      我从你的描述里读出了下面这些信息。<strong>带「假设」的都是我替你填的</strong>，点开就能改；确认活动类型后即可生成方案。
     </p>
 
     <div className="brief-fields">
@@ -176,8 +176,8 @@ export default function BriefPanel({ brief, questions, onChange, onDaysChange, o
 
     <div className="panel-footer">
       <button className="back" onClick={onReset}><ArrowLeft size={17}/> 重新描述</button>
-      <button className="primary" onClick={onGenerate} disabled={generating}>
-        {generating ? '正在生成…' : '生成活动方案'} <ArrowRight size={17}/>
+      <button className="primary" onClick={onGenerate} disabled={generating || source('category') === 'assumed'}>
+        {generating ? '正在生成…' : source('category') === 'assumed' ? '请先确认活动类型' : '生成活动方案'} <ArrowRight size={17}/>
       </button>
     </div>
   </div>;

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Bookmark, ClipboardCopy, Download, PenLine, Printer, Share2 } from 'lucide-react';
 import BlockView from './BlockView';
@@ -19,13 +19,18 @@ interface Props {
   onDownload: () => void;
   onAdjust: () => void;
   onBudgetChange?: (rowId: string, amount: number) => void;
+  onPlanMeta?: (patch:{title?:string;oneLiner?:string})=>void;
+  onModuleMeta?: (id:ModuleId,patch:{title?:string;summary?:string;aiNote?:string})=>void;
+  onBlockTitle?: (id:ModuleId,index:number,title:string)=>void;
   onTableRows?: (moduleId: ModuleId, blockIndex: number, rows: string[][]) => void;
   revisionPanel?: ReactNode;
   aiPanel?: ReactNode;
 }
 
 /** 方案工作台：左侧模块导航 + 右侧完整内容（打印时全部输出） */
-export default function PlanView({ plan, active, onActive, isFavorite, onFavorite, onCopy, onPrint, onCopyPromo, onDownload, onAdjust, onBudgetChange, onTableRows, revisionPanel, aiPanel }: Props) {
+export default function PlanView({ plan, active, onActive, isFavorite, onFavorite, onCopy, onPrint, onCopyPromo, onDownload, onAdjust, onBudgetChange, onTableRows, onModuleMeta, onPlanMeta, onBlockTitle, revisionPanel, aiPanel }: Props) {
+  const [editingPlan, setEditingPlan] = useState(false);
+  const [editingModules,setEditingModules]=useState<ModuleId[]>([]);
   const activeRef = useRef(onActive);
   activeRef.current = onActive;
 
@@ -33,7 +38,7 @@ export default function PlanView({ plan, active, onActive, isFavorite, onFavorit
   useEffect(() => {
     const sections = plan.modules
       .map((module) => document.getElementById(`module-${module.id}`))
-      .filter((element): element is HTMLElement => !!element);
+      .filter((element): element is HTMLElement => !!element && !element.hidden);
     if (!sections.length) return;
 
     let frame = 0;
@@ -94,8 +99,7 @@ export default function PlanView({ plan, active, onActive, isFavorite, onFavorit
     <div className="plan-body">
       <section className="plan-hero">
         <span className="mini-label">YOUR EVENT BLUEPRINT</span>
-        <h3>{plan.title}</h3>
-        <p>{plan.oneLiner}</p>
+        {editingPlan&&onPlanMeta?<><input className="module-title-input" aria-label="方案活动名称" value={plan.title} onChange={e=>onPlanMeta({title:e.target.value})}/><textarea className="module-summary-input" aria-label="方案总述" value={plan.oneLiner} onChange={e=>onPlanMeta({oneLiner:e.target.value})}/></>:<><h3>{plan.title}</h3><p>{plan.oneLiner}</p></>}
         <div className="result-tags">
           <span>{plan.brief.people} 人</span>
           <span>{plan.brief.dateLabel || '时间待定'}</span>
@@ -103,6 +107,9 @@ export default function PlanView({ plan, active, onActive, isFavorite, onFavorit
           <span>预算 ¥{plan.brief.budget.toLocaleString('zh-CN')}</span>
         </div>
         <div className="plan-actions">
+          {onTableRows && <button onClick={() => {setEditingPlan(!editingPlan);setEditingModules([]);}} aria-pressed={editingPlan}><PenLine size={16}/> {editingPlan ? '完成全部编辑' : '逐行编辑整份方案'}</button>}
+          <button onClick={onAdjust}><PenLine size={16}/> 修改基础需求</button>
+          <button onClick={() => document.getElementById('emergency-adjustment')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>突发情况调整</button>
           <button onClick={onCopy}><ClipboardCopy size={16}/> 复制全文</button>
           <button onClick={onPrint}><Printer size={16}/> 打印 / 存为 PDF</button>
           <button onClick={onDownload}><Download size={16}/> 下载 Markdown</button>
@@ -112,9 +119,10 @@ export default function PlanView({ plan, active, onActive, isFavorite, onFavorit
         </div>
       </section>
 
-      {revisionPanel}
+      {editingPlan && <p className="plan-assumptions" role="status">编辑模式已开启：在各模块点击“编辑内容”或“编辑表格”，可修改、删除和补充；预算金额可直接修改。内容自动保存，导出使用修改后的内容。</p>}
+{revisionPanel}
 
-      {aiPanel}
+{aiPanel}
 
       {plan.assumptions.length > 0 && <section className="plan-assumptions">
         <strong>本方案的假设</strong>
@@ -129,23 +137,26 @@ export default function PlanView({ plan, active, onActive, isFavorite, onFavorit
 
       {plan.modules.map((module) => {
         const meta = MODULES.find((item) => item.id === module.id)!;
+        const editable=editingPlan||editingModules.includes(module.id);
         return <section className={`plan-module weight-${module.weight}`} id={`module-${module.id}`} key={module.id}>
           <header className="module-head">
             <span className="module-order">{`${meta.order}`.padStart(2, '0')}</span>
             <div>
-              <h4>{module.title}</h4>
-              <p>{module.summary}</p>
+              {editable&&onModuleMeta?<><input className="module-title-input" aria-label={`${module.title}章节标题`} value={module.title} onChange={e=>onModuleMeta(module.id,{title:e.target.value})}/><textarea className="module-summary-input" aria-label={`${module.title}章节摘要`} value={module.summary} onChange={e=>onModuleMeta(module.id,{summary:e.target.value})}/></>:<><h4>{module.title}</h4><p>{module.summary}</p></>}
             </div>
+            {onTableRows&&<button className="chapter-edit-button" type="button" aria-pressed={editable} onClick={()=>{if(editingPlan){setEditingPlan(false);setEditingModules(plan.modules.filter(item=>item.id!==module.id).map(item=>item.id));}else setEditingModules(current=>current.includes(module.id)?current.filter(id=>id!==module.id):[...current,module.id]);}}>{editable?'完成本章编辑':'逐行编辑本章'}</button>}
             <span className={`weight-badge ${module.weight}`}>{weightLabel[module.weight]}</span>
           </header>
           <div className="module-body">
             {module.blocks.map((block, index) => <BlockView
-              key={`${module.id}-${index}`}
+              key={`${module.id}-${index}-${editable?'edit':'read'}`}
+              initiallyEditing={editable}
+              onTitleChange={onBlockTitle?(title)=>onBlockTitle(module.id,index,title):undefined}
               block={block}
               onBudgetChange={module.id === 'budget' ? onBudgetChange : undefined}
-              onRowsChange={onTableRows ? (rows) => onTableRows(module.id, index, rows) : undefined}
+              onRowsChange={editable && onTableRows ? (rows) => onTableRows(module.id, index, rows) : undefined}
             />)}
-            {module.aiNote && <div className="ai-plan-note"><span className="ai-spark"><ClipboardCopy size={15}/></span><div><strong>AI 补充建议</strong><p>{module.aiNote}</p></div></div>}
+            {module.aiNote && <div className="ai-plan-note"><span className="ai-spark"><ClipboardCopy size={15}/></span><div><strong>AI 补充建议</strong><>{editable&&onModuleMeta?<textarea className="module-summary-input" aria-label={`${module.title}补充说明`} value={module.aiNote} onChange={e=>onModuleMeta(module.id,{aiNote:e.target.value})}/>:<p>{module.aiNote}</p>}</></div></div>}
           </div>
         </section>;
       })}
