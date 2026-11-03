@@ -61,7 +61,8 @@ describe('通用引擎：预算与时间', () => {
     expect(after.total).toBe(before.total - target.amount + 30000);
     expect(after.rows.reduce((sum, row) => sum + row.amount, 0)).toBe(after.total);
     expect(Math.round(after.rows[0].share * 100)).toBeGreaterThan(0);
-    expect(after.note).toContain('原预算');
+    expect(after.note).toContain('分项合计');
+
   });
 
   it('零预算走借用与赞助策略，不生成空表格', () => {

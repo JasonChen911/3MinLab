@@ -1,3 +1,4 @@
+import PlanningFlow from './PlanningFlow';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ArrowRight, CalendarDays, FileText, LayoutDashboard, Users, Wrench, BarChart3, MapPin, CheckCircle2, Sparkles } from 'lucide-react';
 import type { EventPlan } from '../types';
@@ -25,6 +26,8 @@ const categories=['全部','活动策划文件','报名与人员资料','活动�
 export default function WorkspaceHub({plan,apiKey,children,onPlanChange,onRestoreProject,assistantRequest}:{plan:EventPlan;apiKey:string;children:ReactNode;onPlanChange?:(plan:EventPlan)=>void;onRestoreProject?:(project:import('../projects/model').ActivityProject)=>void;assistantRequest?:{id:string;text:string}|null}) {
   const [loaded]=useState(()=>loadWorkspace(plan));const [data,setData]=useState(loaded.data);const [tab,setTab]=useState('overview');const [status,setStatus]=useState(loaded.error);const [activeTool,setActiveTool]=useState('');const [selectedDoc,setSelectedDoc]=useState('');const [query,setQuery]=useState('');const [category,setCategory]=useState('全部');const [busy,setBusy]=useState('');const [library,setLibrary]=useState(loadTemplates);const [aiDraft,setAiDraft]=useState('');const [suggestion,setSuggestion]=useState<{toolIds:string[];fields:string[];reason:string}|null>(null);const [readError,setReadError]=useState(!!loaded.error);
   const workspaceEdited=useRef(false);
+  const [flowRequest,setFlowRequest]=useState<{id:string;text:string}|null>(null);
+  useEffect(()=>{setFlowRequest(null);},[assistantRequest]);
   async function commit(next:Workspace,reason?:string) {
     workspaceEdited.current=true;
     if(readError){setStatus('存档异常，已阻止覆盖。请先导出原始存档再保存。');return false;}
@@ -84,6 +87,7 @@ export default function WorkspaceHub({plan,apiKey,children,onPlanChange,onRestor
   const renderCard=(tool:NonNullable<ReturnType<typeof getDefinition>>)=> <article className="wb-tool-card" key={tool.id}><span className="wb-tool-icon"><Wrench size={18}/></span><span className="wb-badge">{data.tools.includes(tool.id)?'已启用':'可添加'}</span><h3>{tool.name}</h3><p>{tool.description}</p><div className="wb-card-foot"><span>{tool.kind==='text'?'文档模板':tool.kind==='table'?'数据表格':'专业工具'}</span><button type="button" onClick={()=>openTool(tool.id)}>{data.tools.includes(tool.id)?'打开工具':'添加并打开'} <ArrowRight size={14}/></button></div></article>;
   return <div className="wb-hub">
     <header className="wb-event-head"><div><span className="mini-label">ACTIVITY WORKSPACE</span><h1>{plan.title}</h1><div className="wb-meta"><span><CalendarDays size={15}/>{plan.brief.dateLabel||'日期待确认'}</span><span><MapPin size={15}/>{data.profile.location||'地点待填写'}</span><span className="wb-badge">{data.profile.status}</span></div></div><button type="button" onClick={backup}>备份活动资料</button></header>
+    <PlanningFlow plan={plan} data={data} onChange={commit} onOpen={setTab} onAssist={text=>{setFlowRequest({id:uid(),text});window.setTimeout(()=>document.getElementById('flow-assistant')?.scrollIntoView({behavior:'smooth'}),50);}}/>
     <nav className="wb-main-tabs" aria-label="活动工作区">{tabs.map(item=><button key={item.id} type="button" className={tab===item.id?'active':''} aria-current={tab===item.id?'page':undefined} onClick={()=>setTab(item.id)}><item.icon size={17}/>{item.name}</button>)}</nav>
     {(status||busy)&&<p className={status.includes('失败')||status.includes('不足')||status.includes('异常')?'wb-notice error':'wb-save-status'} role="status">{busy||status}</p>}
     {tab==='overview'&&<>
@@ -125,7 +129,7 @@ export default function WorkspaceHub({plan,apiKey,children,onPlanChange,onRestor
       <section className="wb-card"><h3>任务分工</h3><Grid name="任务" fields={[{key:'title',label:'任务'},{key:'owner',label:'负责人'},{key:'due',label:'完成期限',type:'date'},{key:'status',label:'状态',options:['未开始','进行中','已完成']},{key:'resources',label:'资源'},{key:'note',label:'备注'}]} rows={taskRows} onChange={rows=>commit(updateTable(data,'tasks',rows))}/></section>
       <details className="wb-card"><summary>执行流程与节点</summary><Grid name="流程" fields={[{key:'start',label:'开始',type:'time'},{key:'end',label:'结束',type:'time'},{key:'title',label:'活动环节'},{key:'owner',label:'负责人'},{key:'people',label:'参与人员'},{key:'venue',label:'场地'},{key:'equipment',label:'设备'},{key:'status',label:'状态',options:['待执行','进行中','已完成']},{key:'note',label:'备注'}]} rows={data.flow.map(node=>({...node,people:node.people.join(',')}))} onChange={rows=>commit({...data,flow:rows.map(row=>({id:row.id,start:row.start??'',end:row.end??'',title:row.title??'',owner:row.owner??'',people:(row.people??'').split(/[,，]/).filter(Boolean),venue:row.venue??'',equipment:row.equipment??'',status:row.status??'待执行',note:row.note??''}))})}/></details>
     </>}
-    <AssistantPanel plan={plan} workspace={data} apiKey={apiKey} onApply={acceptAssistant} onUndo={undoAssistant} request={assistantRequest}/>
+    <div id="flow-assistant"/><AssistantPanel plan={plan} workspace={data} apiKey={apiKey} onApply={acceptAssistant} onUndo={undoAssistant} request={flowRequest ?? assistantRequest}/>
     {tab==='stats'&&<>
       <div className="wb-section-heading"><div><h2>活动数据统计</h2><p>只基于已登记和录入的数据计算，空数据不生成虚构成果。</p></div></div>
       <div className="wb-metrics">{[['登记人员',data.people.length],['任务完成率',taskRows.length?`${Math.round(completed/taskRows.length*100)}%`:'暂无任务'],['运动员',data.athletics.athletes.length],['有效成绩',data.athletics.results.filter(row=>row.status==='有效'&&row.value.trim()).length],['演出总分钟',orderedAgenda(tableRows(data,'performances'),'09:00',true).reduce((sum,item)=>sum+item.duration,0)],['实际志愿服务小时',tableRows(data,'volunteers').reduce((sum,row)=>sum+Math.max(0,Number(row.f5)||0),0)]].map(([label,value])=><div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>

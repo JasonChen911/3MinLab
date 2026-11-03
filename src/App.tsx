@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Clock3, FileText, History, Settings, Sparkles, Trash2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Clock3, FileText, History, Menu, X, Settings, Sparkles, Trash2 } from 'lucide-react';
 import BriefPanel from './components/BriefPanel';
 import PlanView from './components/PlanView';
 import PresetGallery from './components/PresetGallery';
@@ -44,6 +44,7 @@ const EXAMPLES = [
 ];
 
 export default function App() {
+  const [mobileMenu,setMobileMenu]=useState(false);
   const [saved, setSaved] = useState(loadLocalState);
   const [screen, setScreen] = useState<'welcome' | 'home' | 'workspace' | 'projects'>(() => (window.location.hash.startsWith('#workspace') ? 'workspace' : window.location.hash === '#projects' ? 'projects' : ['#home','#presets'].includes(window.location.hash) ? 'home' : 'welcome'));
   const [stage, setStage] = useState<'intake' | 'plan'>(() => (saved.data.recent ? 'plan' : 'intake'));
@@ -274,6 +275,7 @@ export default function App() {
     if (!plan) return;
     const next = editBudgetRow(plan, rowId, amount);
     setPlan(next);
+    setBrief(next.brief);
     persist(next, true);
   }
 
@@ -281,6 +283,7 @@ export default function App() {
   function updateTableRows(moduleId: ModuleId, blockIndex: number, rows: string[][]) {
     if (!plan) return;
     const next=editPlanRows(plan,moduleId,blockIndex,rows);
+    setBrief(next.brief);
     setPlan(next);
     persist(next, true);
   }
@@ -379,7 +382,8 @@ export default function App() {
         <img className="brand-mark" src="/images/activity-lab-logo-v2.png" alt=""/>
         <span>通用策划<br/><strong>活动实验室</strong></span>
       </a>
-      <div className="top-right">
+      <button className="mobile-menu-toggle" aria-label={mobileMenu?'关闭导航菜单':'打开导航菜单'} aria-expanded={mobileMenu} aria-controls="main-actions" onClick={()=>setMobileMenu(!mobileMenu)}>{mobileMenu?<X size={22}/>:<Menu size={22}/>}</button>
+      <div id="main-actions" className={`top-right ${mobileMenu?'mobile-open':''}`} onClick={()=>setMobileMenu(false)}>
         <button className="project-list-link" onClick={() => navigateTo('projects')}>我的活动</button>
         <span className="tag">GENERAL EVENT PLANNER</span>
         <button className="settings-trigger" onClick={() => setShowSettings(true)}>
@@ -395,7 +399,7 @@ export default function App() {
     <main id="home" className={screen === 'home' || screen === 'welcome' ? 'home-page' : 'workspace-page'}>
       {screen === 'projects' && <ProjectList onCreate={() => navigateTo('home')} onOpen={openProject} onRemoved={id=>{if(id===projectId){setProjectId('');setBrief(null);setPlan(null);}setSaved(loadLocalState());}}/>}
       {screen === 'welcome' && <WelcomeGate onEnter={() => navigateTo('home')} onProjects={() => navigateTo('projects')}/>}
-      {screen === 'home' && <div className="entry-animation project-page"><button className="project-list-link" onClick={() => navigateTo('projects')}>我的活动 · 继续已有项目</button></div>}
+
       {screen === 'home' && <section className="hero hero-input">
         <div className="hero-copy">
           <div className="eyebrow"><span className="pulse"/> ANY EVENT, PLANNED</div>
@@ -446,15 +450,15 @@ export default function App() {
       {screen === 'workspace' && !storageReady && <div className="project-page panel" role="status">正在恢复活动项目…</div>}
       {screen === 'workspace' && storageReady && <section id="workspace" className="workspace">
         <div className="draft-save-strip"><button onClick={() => navigateTo('projects')}>返回我的活动</button><button onClick={() => void saveCurrentProject(true)} disabled={!brief || !projectId}>保存活动</button><span role="status">{projectSaveStatus}</span></div>
-        <div className="workspace-head">
+        <div className={`workspace-head ${stage === 'plan' ? 'workspace-head-compact' : ''}`}>
           <div>
             <button className="workspace-back" onClick={() => navigateTo('home')}><ArrowLeft size={16}/> 返回首页</button>
-            <div className="eyebrow dark">{stage === 'intake' ? 'STEP 01 / 需求理解' : 'STEP 02 / 策划方案'}</div>
+            <div className="eyebrow dark">{stage === 'intake' ? '准备 / 需求确认' : '活动策划工作区'}</div>
             <h2>{stage === 'intake' ? '确认需求，生成方案' : '策划方案'}</h2>
             <p>{stage === 'intake' ? '关键信息一屏确认；没填的我已经按同类活动补上了假设。' : '12 个模块已按活动性质排好权重，可直接执行或继续调整。'}</p>
             {stage === 'intake' && idea && <p className="idea-recap"><FileText size={14}/> 你的描述：「{idea}」</p>}
           </div>
-          <span className="step-count">{stage === 'intake' ? '01' : '02'} <small>/ 02</small></span>
+
         </div>
 
         {stage === 'intake' && brief && <div id="brief-grid">

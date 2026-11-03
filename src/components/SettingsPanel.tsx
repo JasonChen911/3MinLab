@@ -28,7 +28,7 @@ export default function SettingsPanel({ onClose, onKeyChange }: { onClose: () =>
     <section className="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title" onClick={event => event.stopPropagation()}>
       <div className="settings-heading"><span className="settings-icon"><KeyRound size={21}/></span><button ref={closeRef} className="icon-button" onClick={onClose} aria-label="关闭设置"><X size={20}/></button></div>
       <span className="mini-label">PERSONAL SETTINGS</span><h2 id="settings-title">设置 DeepSeek API Key</h2>
-      <p>填入你自己的 Key，就能在“要不问问AI？”中获取活动建议。无需修改项目文件。</p>
+      <p>填入你自己的 Key，就能在“让 AI 帮我多问几个问题”或“让 AI 帮我完善”中获取活动建议。无需修改项目文件。</p>
       <label htmlFor="deepseek-key">API Key</label>
       <div className="key-field"><input id="deepseek-key" type={visible ? 'text' : 'password'} autoComplete="off" spellCheck={false} value={key} onChange={event => { setKey(event.target.value); setMessage(''); }} placeholder="sk-..."/><button onClick={() => setVisible(value => !value)} aria-label={visible ? '隐藏 API Key' : '显示 API Key'}>{visible ? <EyeOff size={19}/> : <Eye size={19}/>}</button></div>
       <p className="settings-note">Key 仅保存在当前浏览器的 localStorage。使用 AI 时会通过同源本机服务发送给 DeepSeek；请勿在共享电脑上保存。清除浏览器数据也会移除 Key。</p>

@@ -63,7 +63,7 @@ export default function BlockView({ block, onBudgetChange, onRowsChange, initial
     case 'budget':
       return <div className="block-group">
         {block.title && <h5 className="block-title">{block.title}</h5>}
-        <div className="table-wrap"><table className="block-table budget-table">
+        <p className="table-scroll-hint">左右滑动查看完整表格，编辑模式可增删明细。</p><div className="table-wrap" tabIndex={0} role="region" aria-label="可横向滚动的数据表格"><table className="block-table budget-table">
           <thead><tr><th>类别</th><th>科目</th><th>项目</th><th className="num">金额</th><th className="num">占比</th></tr></thead>
           <tbody>{block.rows.map((row) => <tr key={row.id}>
             <td>{row.bucket}</td>
@@ -82,7 +82,7 @@ export default function BlockView({ block, onBudgetChange, onRowsChange, initial
               : formatMoney(row.amount)}</td>
             <td className="num">{Math.round(row.share * 100)}%</td>
           </tr>)}</tbody>
-          <tfoot><tr><td colSpan={3}>合计</td><td className="num">{formatMoney(block.total)}</td><td className="num">100%</td></tr></tfoot>
+          <tfoot><tr><td colSpan={3}>合计</td><td className="num">{formatMoney(block.total)}</td><td className="num">{block.total>0?100:0}%</td></tr></tfoot>
         </table></div>
         {block.note && <p className="block-note">{block.note}</p>}
       </div>;
@@ -90,7 +90,7 @@ export default function BlockView({ block, onBudgetChange, onRowsChange, initial
     case 'kpis':
       return <div className="block-group">
         {block.title && <h5 className="block-title">{block.title}</h5>}
-        <div className="table-wrap"><table className="block-table">
+        <p className="table-scroll-hint">左右滑动查看完整表格，编辑模式可增删明细。</p><div className="table-wrap" tabIndex={0} role="region" aria-label="可横向滚动的数据表格"><table className="block-table">
           <thead><tr><th>指标</th><th>目标</th><th>核算方式</th></tr></thead>
           <tbody>{block.rows.map((row) => <tr key={row.name}>
             <td>{row.name}</td><td>{row.target}</td><td className="muted-cell">{row.method}</td>
@@ -101,7 +101,7 @@ export default function BlockView({ block, onBudgetChange, onRowsChange, initial
     case 'staff':
       return <div className="block-group">
         {block.title && <h5 className="block-title">{block.title}</h5>}
-        <div className="table-wrap"><table className="block-table">
+        <p className="table-scroll-hint">左右滑动查看完整表格，编辑模式可增删明细。</p><div className="table-wrap" tabIndex={0} role="region" aria-label="可横向滚动的数据表格"><table className="block-table">
           <thead><tr><th>岗位</th><th>层级</th><th className="num">人数</th><th>职责</th><th>配置依据</th></tr></thead>
           <tbody>{block.rows.map((row) => <tr key={row.role}>
             <td>{row.role}</td>
@@ -139,7 +139,7 @@ export default function BlockView({ block, onBudgetChange, onRowsChange, initial
             {editing ? '完成编辑' : '编辑表格'}
           </button>}
         </div>
-        <div className="table-wrap"><table className={`block-table ${editing ? 'editing' : ''}`}>
+        <p className="table-scroll-hint">左右滑动查看完整表格，编辑模式可增删明细。</p><div className="table-wrap" tabIndex={0} role="region" aria-label="可横向滚动的数据表格"><table className={`block-table ${editing ? 'editing' : ''}`}>
           <thead><tr>
             {block.head.map((cell) => <th key={cell}>{cell}</th>)}
             {editing && <th className="ops-col">操作</th>}

@@ -38,11 +38,12 @@ export function allocateBudget(lines: BudgetTemplateLine[], budget: number): All
   const target = allocated[targetIndex];
   allocated[targetIndex] = { ...target, amount: Math.max(0, target.amount + diff) };
 
-  return allocated.map((line) => ({
+  const shares=budgetPercentages(allocated.map(line=>line.amount));
+  return allocated.map((line,index) => ({
     category: line.category,
     item: line.item,
     amount: line.amount,
-    share: total > 0 ? line.amount / total : 0,
+    share: shares[index]/100,
     note: line.note,
   }));
 }
@@ -61,26 +62,32 @@ export const perCapita = (budget: number, people: number) =>
  * 手动修改某一笔预算：重算合计与占比，并保留"原预算"提示。
  * 修改后的方案会随 plan 一起持久化，刷新不丢失。
  */
-export function editBudgetRow(plan: EventPlan, rowId: string, amount: number): EventPlan {
-  const safe = Math.max(0, Math.round(Number.isFinite(amount) ? amount : 0));
-  const modules = plan.modules.map((module) => {
-    if (module.id !== 'budget') return module;
-    return {
-      ...module,
-      blocks: module.blocks.map((block) => {
-        if (block.kind !== 'budget') return block;
-        const rows = block.rows.map((row) => (row.id === rowId ? { ...row, amount: safe } : row));
-        const total = rows.reduce((sum, row) => sum + row.amount, 0);
-        return {
-          ...block,
-          rows: rows.map((row) => ({ ...row, share: total > 0 ? row.amount / total : 0 })),
-          total,
-          note: `合计 ${formatMoneyExact(total)}；原预算 ${formatMoney(plan.brief.budget)}，修改后请自行核对是否仍在可承受范围。`,
-        };
-      }),
-    };
-  });
-  return { ...plan, modules };
+export function budgetPercentages(amounts: number[]): number[] {
+  const total=amounts.reduce((sum,n)=>sum+n,0);if(!total)return amounts.map(()=>0);
+  const raw=amounts.map(n=>n/total*100), result=raw.map(Math.floor);
+  const order=raw.map((n,i)=>({i,remainder:n-result[i]})).sort((a,b)=>b.remainder-a.remainder||a.i-b.i);
+  const remaining=100-result.reduce((a,b)=>a+b,0);
+  for(let i=0;i<remaining;i++)result[order[i].i]++;
+  return result;
 }
-
+export function synchronizeBudget(plan: EventPlan): EventPlan {
+  const block=plan.modules.find(m=>m.id==='budget')?.blocks.find(b=>b.kind==='budget');if(!block||block.kind!=='budget')return plan;
+  const rows=block.rows.map(row=>({...row,amount:Math.max(0,Math.round(Number.isFinite(row.amount)?row.amount:0))}));
+  const total=rows.reduce((sum,row)=>sum+row.amount,0), percentages=budgetPercentages(rows.map(r=>r.amount));
+  const oldMoney=formatMoney(plan.brief.budget), money=formatMoney(total), person=formatMoney(perCapita(total,plan.brief.people));
+  const escapedMoney=oldMoney.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  const replace=(text:string)=>text.replace(/人均(?:成本)?\s*¥[\d,]+/g,match=>match.replace(/¥[\d,]+/,person)).replace(new RegExp(escapedMoney+'(?![0-9,])','g'),money);
+  const buckets=new Map<string,number>();rows.forEach(r=>buckets.set(r.bucket,(buckets.get(r.bucket)??0)+r.amount));
+  return {...plan,brief:{...plan.brief,budget:total,sources:{...plan.brief.sources,budget:'user'}},oneLiner:replace(plan.oneLiner),modules:plan.modules.map(module=>({...module,summary:module.id==='budget'?`${money}，${rows.length} 个科目，人均 ${person}`:replace(module.summary),blocks:module.blocks.map(b=>{
+    if(b===block)return {...b,rows:rows.map((row,i)=>({...row,share:percentages[i]/100})),total,note:`分项合计 ${money}；所有金额为计划估算，实际支出另行登记。`};
+    if(module.id==='budget'&&b.kind==='bullets'&&b.title==='分类小计')return {...b,items:[...buckets].map(([name,value])=>`${name} ${formatMoney(value)}`)};
+    if(b.kind==='text')return {...b,text:replace(b.text)};
+    if(b.kind==='bullets'||b.kind==='checklist')return {...b,items:b.items.map(replace)};
+    if(b.kind==='table')return {...b,rows:b.rows.map(row=>row.map(replace))};
+    return b;
+  })}))};
+}
+export function editBudgetRow(plan: EventPlan, rowId: string, amount: number): EventPlan {
+  return synchronizeBudget({...plan,modules:plan.modules.map(module=>module.id!=='budget'?module:{...module,blocks:module.blocks.map(block=>block.kind!=='budget'?block:{...block,rows:block.rows.map(row=>row.id===rowId?{...row,amount}:row)})})});
+}
 export { roundTo };

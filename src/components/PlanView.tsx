@@ -44,22 +44,25 @@ export default function PlanView({ plan, active, onActive, isFavorite, onFavorit
     let frame = 0;
     const update = () => {
       frame = 0;
-      const line = window.scrollY + 140;
+      const line = Math.max(140, (document.querySelector('.topbar')?.getBoundingClientRect().bottom ?? 0) + 16);
       let current = sections[0];
-      sections.forEach((section) => { if (section.offsetTop <= line) current = section; });
+      sections.forEach((section) => { if (section.getBoundingClientRect().top <= line) current = section; });
       if (current) activeRef.current(current.id.replace('module-', '') as ModuleId);
     };
     const onScroll = () => { if (!frame) frame = window.requestAnimationFrame(update); };
 
     window.addEventListener('scroll', onScroll, { passive: true });
+    const observer=new ResizeObserver(onScroll);sections.forEach(section=>observer.observe(section));
     update();
     return () => {
       window.removeEventListener('scroll', onScroll);
+      observer.disconnect();
       if (frame) window.cancelAnimationFrame(frame);
     };
   }, [plan.id, plan.modules]);
 
   function jump(id: ModuleId) {
+    const details=document.querySelector<HTMLDetailsElement>(`#module-${id} > details`);if(details)details.open=true;
     onActive(id);
     document.getElementById(`module-${id}`)?.scrollIntoView({
       behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
@@ -111,7 +114,7 @@ export default function PlanView({ plan, active, onActive, isFavorite, onFavorit
           <button onClick={onAdjust}><PenLine size={16}/> 修改基础需求</button>
           <button onClick={() => document.getElementById('emergency-adjustment')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>突发情况调整</button>
           <button onClick={onCopy}><ClipboardCopy size={16}/> 复制全文</button>
-          <button onClick={onPrint}><Printer size={16}/> 打印 / 存为 PDF</button>
+          <button onClick={() => {const sections=document.querySelectorAll<HTMLDetailsElement>('.module-body');const states=Array.from(sections,section=>section.open);sections.forEach(section=>section.open=true);onPrint();sections.forEach((section,i)=>section.open=states[i]);}}><Printer size={16}/> 打印 / 存为 PDF</button>
           <button onClick={onDownload}><Download size={16}/> 下载 Markdown</button>
           <button onClick={onFavorite}><Bookmark size={16} fill={isFavorite ? 'currentColor' : 'none'}/> {isFavorite ? '已收藏' : '收藏'}</button>
           <button onClick={onCopyPromo}><Share2 size={16}/> 复制招募文案</button>
@@ -120,11 +123,10 @@ export default function PlanView({ plan, active, onActive, isFavorite, onFavorit
       </section>
 
       {editingPlan && <p className="plan-assumptions" role="status">编辑模式已开启：在各模块点击“编辑内容”或“编辑表格”，可修改、删除和补充；预算金额可直接修改。内容自动保存，导出使用修改后的内容。</p>}
-{revisionPanel}
+<details className="planning-details"><summary>修改方案与突发调整</summary>{revisionPanel}</details>
+<details className="planning-details"><summary>AI 辅助完善当前模块</summary>{aiPanel}</details>
 
-{aiPanel}
-
-      {plan.assumptions.length > 0 && <section className="plan-assumptions">
+      {plan.assumptions.length > 0 && <details className="plan-assumptions"><summary>查看待核实的方案假设（{plan.assumptions.length} 项）</summary>
         <strong>本方案的假设</strong>
         <ul>
           {plan.assumptions.map((assumption) => <li key={assumption.field}>
@@ -133,7 +135,7 @@ export default function PlanView({ plan, active, onActive, isFavorite, onFavorit
           </li>)}
         </ul>
         <button className="text-button" onClick={onAdjust}>修改这些设定 ↗</button>
-      </section>}
+      </details>}
 
       {plan.modules.map((module) => {
         const meta = MODULES.find((item) => item.id === module.id)!;
@@ -147,7 +149,7 @@ export default function PlanView({ plan, active, onActive, isFavorite, onFavorit
             {onTableRows&&<button className="chapter-edit-button" type="button" aria-pressed={editable} onClick={()=>{if(editingPlan){setEditingPlan(false);setEditingModules(plan.modules.filter(item=>item.id!==module.id).map(item=>item.id));}else setEditingModules(current=>current.includes(module.id)?current.filter(id=>id!==module.id):[...current,module.id]);}}>{editable?'完成本章编辑':'逐行编辑本章'}</button>}
             <span className={`weight-badge ${module.weight}`}>{weightLabel[module.weight]}</span>
           </header>
-          <div className="module-body">
+          <details className="module-body" open={editable || undefined}><summary>查看 / 收起本章内容</summary>
             {module.blocks.map((block, index) => <BlockView
               key={`${module.id}-${index}-${editable?'edit':'read'}`}
               initiallyEditing={editable}
@@ -157,7 +159,7 @@ export default function PlanView({ plan, active, onActive, isFavorite, onFavorit
               onRowsChange={editable && onTableRows ? (rows) => onTableRows(module.id, index, rows) : undefined}
             />)}
             {module.aiNote && <div className="ai-plan-note"><span className="ai-spark"><ClipboardCopy size={15}/></span><div><strong>AI 补充建议</strong><>{editable&&onModuleMeta?<textarea className="module-summary-input" aria-label={`${module.title}补充说明`} value={module.aiNote} onChange={e=>onModuleMeta(module.id,{aiNote:e.target.value})}/>:<p>{module.aiNote}</p>}</></div></div>}
-          </div>
+          </details>
         </section>;
       })}
 
