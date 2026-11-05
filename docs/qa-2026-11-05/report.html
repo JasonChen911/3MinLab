@@ -1,0 +1,973 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>活动实验室 3MinLab · 本地部署与产品复盘报告</title><style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { margin: 0 auto; max-width: 900px; padding: 40px 44px 80px; font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif; color: #23302a; line-height: 1.75; font-size: 14px; background: #fff; }
+  h1 { font-size: 30px; line-height: 1.35; border-bottom: 3px solid #31583c; padding-bottom: 14px; margin: 0 0 22px; }
+  h2 { font-size: 22px; margin: 38px 0 14px; padding-left: 10px; border-left: 5px solid #6f8a5c; }
+  h3 { font-size: 17px; margin: 26px 0 10px; color: #2b4c36; }
+  h4 { font-size: 15px; margin: 20px 0 8px; }
+  p, li { font-size: 14px; }
+  ul, ol { padding-left: 22px; }
+  code { background: #f3f5ef; padding: 1px 5px; border-radius: 4px; font-size: 12.5px; font-family: Consolas, monospace; }
+  pre { background: #f6f7f3; border: 1px solid #e2e6dc; border-radius: 8px; padding: 12px 14px; overflow-x: auto; font-size: 12.5px; page-break-inside: avoid; }
+  pre code { background: none; padding: 0; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0 20px; font-size: 12.5px; page-break-inside: auto; }
+  th, td { border: 1px solid #d9e0d3; padding: 7px 9px; text-align: left; vertical-align: top; }
+  th { background: #eef3e7; font-weight: 600; white-space: nowrap; }
+  tr { page-break-inside: avoid; }
+  img { max-width: 100%; border: 1px solid #dde3d6; border-radius: 8px; margin: 10px 0 6px; page-break-inside: avoid; }
+  blockquote { margin: 14px 0; padding: 10px 16px; background: #f7f9f2; border-left: 4px solid #9db089; color: #3c4a40; }
+  hr { border: 0; border-top: 1px solid #e3e8dd; margin: 30px 0; }
+  @page { size: A4; margin: 16mm 14mm; }
+  h1, h2, h3 { page-break-after: avoid; }
+</style></head><body><h1>活动实验室（3MinLab）本地部署与产品复盘报告</h1>
+<ul>
+<li><strong>项目路径</strong>：<code>C:\Users\Lenovo\Documents\ChatGPT\3min labs\3MinLab</code></li>
+<li><strong>仓库备份</strong>：<a href="https://github.com/JasonChen911/3MinLab%EF%BC%88%60main%60">https://github.com/JasonChen911/3MinLab（`main`</a> @ <code>950e83d</code>，190 个文件）</li>
+<li><strong>本地运行地址</strong>：<a href="http://127.0.0.1:8787">http://127.0.0.1:8787</a></li>
+<li><strong>测试日期</strong>：2026-11-05</li>
+<li><strong>测试环境</strong>：Windows 11 · Node.js v26.13.0 · Chromium Edge（Playwright 无头驱动）· 屏幕 1440×900 / 768×1024 / 390×844</li>
+<li><strong>代码状态</strong>：<code>npm test</code> 全绿（前端 186 项 + 服务端 25 项），<code>npm run build</code> 通过</li>
+</ul>
+<hr>
+<h2>一、结论摘要</h2>
+<p><strong>一句话结论：这是一个功能完成度相当高、工程质量在同类&quot;AI 策划工具&quot;里偏上的产品，核心链路（一句话 → 12 模块方案 → 编辑 → 导出 → 项目留存 → 模拟推演）全部跑通且数据自洽；但&quot;视觉可达性&quot;和&quot;首屏性能&quot;两块存在明显短板，深色模式基本不可用，首屏接近 7 MB 且服务端零缓存、零压缩。</strong></p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>评价</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>功能完整度</td>
+<td>★★★★☆</td>
+<td>12 模块生成、需求假设标注、一句话改方案、应急调整、预算联动、导出、资料导入、模拟、复盘均已实现</td>
+</tr>
+<tr>
+<td>数据一致性</td>
+<td>★★★★☆</td>
+<td>预算分项之和与合计完全相等；人数/岗位/物资按规模联动；导出文件为真实 OOXML/PDF</td>
+</tr>
+<tr>
+<td>工程质量</td>
+<td>★★★★☆</td>
+<td>规则引擎与 UI 分离、纯函数 + 211 项测试、服务端有 Host/Origin/体积/限流防护</td>
+</tr>
+<tr>
+<td>UI 视觉</td>
+<td>★★★☆☆</td>
+<td>纸张+植物风格统一、留白讲究；但信息密度过高、字号偏小、对比度不足</td>
+</tr>
+<tr>
+<td>深色模式</td>
+<td>★☆☆☆☆</td>
+<td>首页在深色模式下几乎不可读（浅色纸张背景 + 浅色文字），无障碍违规 77 处</td>
+</tr>
+<tr>
+<td>性能</td>
+<td>★★☆☆☆</td>
+<td>首屏 6.97 MB；Logo 887 KB 被下载两次；无 gzip / 无缓存头 / 不支持 304</td>
+</tr>
+<tr>
+<td>移动端</td>
+<td>★★★☆☆</td>
+<td>无横向溢出、导航收进汉堡菜单；但工作台六阶段面板把主内容推到第 2 屏</td>
+</tr>
+<tr>
+<td>无障碍</td>
+<td>★★☆☆☆</td>
+<td>对比度、字号、焦点可见性、弹窗焦点管理均有问题</td>
+</tr>
+</tbody></table>
+<p><strong>阻断级问题 2 个（P0）</strong>：深色模式不可读；首屏体积与缓存策略。<br><strong>重要问题 7 个（P1）</strong>：移动端信息架构、对比度/字号、失效分享链接、焦点与弹窗、统计页串味、Toast 打扰、字号&quot;大&quot;无效。<br><strong>一般问题 10 个（P2）</strong>：见第五章。</p>
+<hr>
+<h2>二、备份与本地部署记录</h2>
+<h3>2.1 GitHub 备份（改动前完成）</h3>
+<p>要求是&quot;改之前先把任务文件全部上传备份&quot;，因此第一步就做了全量快照，<strong>未对项目源码做任何修改</strong>（只是 <code>git add/commit/push</code>）。</p>
+<pre><code>commit 950e83d  backup: 2026-11-05 本地部署前完整快照（生命周期升级 + 模拟实验室 + 设置中心）
+branch  main -&gt; origin/main（04f5306..950e83d，快进，无需 force）
+文件数  190（node_modules / dist / *.local 按 .gitignore 排除）
+</code></pre>
+<p>备份时发现三个环境事实，记录如下，便于下次复现：</p>
+<ol>
+<li>机器上原本<strong>没有安装 git</strong>，也没有 <code>gh</code> CLI；通过 <code>winget install Git.Git</code> 安装 Git 2.56。</li>
+<li>本机访问 GitHub 走<strong>系统代理 127.0.0.1:7890</strong>，<code>git push</code> 需要显式配置 <code>http.proxy</code>，否则报 <code>Failed to connect to github.com:443</code>；而 <code>api.github.com</code> 走系统代理是通的，容易误判为断网。</li>
+<li>仓库凭据已存在 Windows 凭据管理器（<code>git:https://github.com</code>），无需重新登录。</li>
+</ol>
+<p>推送后已通过 GitHub API 复核：远端 <code>main</code> = <code>950e83d</code>，树内 190 个文件。</p>
+<h3>2.2 依赖与构建</h3>
+<pre><code class="language-bash">npm install          # 依赖原本完整，&quot;up to date&quot;
+npm run build        # tsc -b &amp;&amp; vite build，通过
+npm test             # 24 个 vitest 文件 186 项 + server 25 项，全部通过
+</code></pre>
+<p>构建产物：</p>
+<table>
+<thead>
+<tr>
+<th>产物</th>
+<th>原始体积</th>
+<th>gzip</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>dist/assets/index-*.js</code></td>
+<td>763.60 kB</td>
+<td>253.11 kB</td>
+</tr>
+<tr>
+<td><code>dist/assets/index-*.css</code></td>
+<td>109.29 kB</td>
+<td>22.75 kB</td>
+</tr>
+<tr>
+<td><code>dist/assets/browser-*.js</code></td>
+<td>25.78 kB</td>
+<td>10.13 kB</td>
+</tr>
+</tbody></table>
+<p>构建告警：单 chunk 超过 500 kB（未做代码分割）。这不影响功能，但和首屏性能问题叠加。</p>
+<h3>2.3 运行</h3>
+<pre><code class="language-bash"># 生产模式（当前正在运行）
+API_PORT=8787 node server/index.mjs      # 或 npm start
+# 开发模式（已验证可用：Vite 5173 + API 8789）
+npm run dev
+</code></pre>
+<ul>
+<li>生产地址：<strong><a href="http://127.0.0.1:8787">http://127.0.0.1:8787</a></strong>（静态 <code>dist</code> + <code>/api/*</code>）</li>
+<li>开发模式已实测：<code>5173</code> 返回 200，<code>8789/api/ai/config</code> 返回 200；验证后已关闭，避免与生产端口冲突。</li>
+<li>无 <code>.env.local</code>，因此 <code>/api/ai/config</code> 返回 <code>configured:false</code>，<strong>AI 相关功能全部走&quot;本地规则降级&quot;</strong>——这恰好是本次要重点验证的路径。</li>
+<li>旧部署实例（端口 8788，PID 9960）仍在运行，指向同一份 <code>dist</code>，重新构建后它也会读到新产物。</li>
+</ul>
+<hr>
+<h2>三、验证方法</h2>
+<table>
+<thead>
+<tr>
+<th>手段</th>
+<th>覆盖内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Playwright（Edge 无头）脚本化巡检</td>
+<td>6 条路由 × 3 种分辨率；完整业务链路回归；截图存档</td>
+</tr>
+<tr>
+<td>axe-core（WCAG 2.1 A/AA 规则集）</td>
+<td>首页、需求页、工作台 5 个页签、项目页、设置页</td>
+</tr>
+<tr>
+<td>接口探测（原始 HTTP + fetch）</td>
+<td>Host/Origin 校验、Content-Type 校验、非法 JSON、路径穿越、限流、501 占位接口</td>
+</tr>
+<tr>
+<td>二进制校验</td>
+<td>导出的 Word/Excel 校验 <code>PK\x03\x04</code>，PDF 校验 <code>%PDF</code>，Markdown 行数与内容抽查</td>
+</tr>
+<tr>
+<td>IndexedDB 直读</td>
+<td>校验自动保存是否真正落库（避免&quot;界面看着保存了其实没存&quot;的误判）</td>
+</tr>
+<tr>
+<td>键盘导航</td>
+<td>Tab 顺序、焦点可见性、弹窗焦点归属、Esc 关闭</td>
+</tr>
+</tbody></table>
+<p>共执行 20 个自动化脚本，关键结论均有两处以上交叉验证（例如&quot;编辑是否持久化&quot;先用 <code>innerText</code> 得到假阴性，改用&quot;展开全部章节 + 读 input.value + 直读 IndexedDB&quot;后确认真的是持久化的）。</p>
+<hr>
+<h2>四、功能验证结果</h2>
+<blockquote>
+<p>图例：✅ 正常 ｜ ⚠️ 可用但有体验问题 ｜ ❌ 失败</p>
+</blockquote>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>功能</th>
+<th>结果</th>
+<th>证据 / 说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>首页一句话输入、示例、字数上限（200）</td>
+<td>✅</td>
+<td>超长自动截断；空内容禁用「开始策划」</td>
+</tr>
+<tr>
+<td>2</td>
+<td>12 个预设模板、10 类筛选、展开详情</td>
+<td>✅</td>
+<td>12 个预设均正常渲染；抽查「新生迎新」可直接起稿，Toast 正确回显预设名</td>
+</tr>
+<tr>
+<td>3</td>
+<td>一句话 → 需求结构化（人数/预算/日期/时长/场地/类型）</td>
+<td>✅</td>
+<td>&quot;下个月给 400 名新生办校园迎新，预算 8000，在体育馆&quot; → 400 人 / ¥8,000 / 2026-12-05 / 体育场馆</td>
+</tr>
+<tr>
+<td>4</td>
+<td>缺失信息按同类活动补全并标注「假设」</td>
+<td>✅</td>
+<td>时长、目标、人群均带「假设」标；界面逐条说明</td>
+</tr>
+<tr>
+<td>5</td>
+<td>无法判定类型时的类型询问</td>
+<td>✅</td>
+<td>&quot;办一个好玩的事情&quot; → 出现 6 个快捷类型 + 「继续用通用框架」，不静默套模板</td>
+</tr>
+<tr>
+<td>6</td>
+<td>生成 12 模块方案</td>
+<td>✅</td>
+<td>12 章齐全，模块权重（重点/常规/简要）正确显示</td>
+</tr>
+<tr>
+<td>7</td>
+<td>预算分项与合计一致性</td>
+<td>✅</td>
+<td>1750+1200+1450+1450+950+1200 = ¥8,000 = 合计，占比合计 100%</td>
+</tr>
+<tr>
+<td>8</td>
+<td>预算金额直接改，自动重算合计与占比</td>
+<td>✅</td>
+<td>改首行 → 合计从 50,000 → 44,999，复制文本同步</td>
+</tr>
+<tr>
+<td>9</td>
+<td>逐行编辑（标题、摘要、表格单元格、增删行）</td>
+<td>✅</td>
+<td>编辑后刷新仍在（IndexedDB 已落库）</td>
+</tr>
+<tr>
+<td>10</td>
+<td>一句话改方案（本地规则）</td>
+<td>✅</td>
+<td>&quot;预算压缩到 5000&quot; → 预览 50000→5000，勾选应用后预算变 ¥5,000，并写版本历史</td>
+</tr>
+<tr>
+<td>11</td>
+<td>应急调整（降雨/场地/缺人/设备/嘉宾迟到）</td>
+<td>✅</td>
+<td>预览 → 应用 → 写入流程/执行/风险 → 可撤销</td>
+</tr>
+<tr>
+<td>12</td>
+<td>复制全文（Markdown）/ 复制招募文案</td>
+<td>✅</td>
+<td>剪贴板 8,935 字符，含最新编辑</td>
+</tr>
+<tr>
+<td>13</td>
+<td>下载 Markdown</td>
+<td>✅</td>
+<td>8,565 B / 371 行，内容与页面一致</td>
+</tr>
+<tr>
+<td>14</td>
+<td>导出 Word / Excel / PDF</td>
+<td>✅</td>
+<td>19,882 B（PK）/ 17,867 B（PK）/ 116,414 B（%PDF），中文正常</td>
+</tr>
+<tr>
+<td>15</td>
+<td>打印/存 PDF 样式</td>
+<td>✅</td>
+<td>打印样式会隐藏导航、展开全部章节、隐藏助手浮层</td>
+</tr>
+<tr>
+<td>16</td>
+<td>收藏 / 方案记录 / 历史打开 / 删除</td>
+<td>✅</td>
+<td>记录数、空态文案正确</td>
+</tr>
+<tr>
+<td>17</td>
+<td>项目自动保存、恢复、状态筛选、复制、归档、删除</td>
+<td>✅</td>
+<td>删除有二次确认；刷新后回到上次 #workspace/{id}</td>
+</tr>
+<tr>
+<td>18</td>
+<td>完整备份导出 / 导入</td>
+<td>✅</td>
+<td>24,647 B JSON（format/version/project/files），导入后生成&quot;（恢复副本）&quot;</td>
+</tr>
+<tr>
+<td>19</td>
+<td>上传 CSV / 解析预览 / 字段映射 / 确认导入</td>
+<td>✅</td>
+<td>3 行报名数据映射到「通用报名名单」，不执行公式</td>
+</tr>
+<tr>
+<td>20</td>
+<td>专属工具箱、生成文档、文档中心编辑、导出</td>
+<td>✅</td>
+<td>工具 6 个可添加；文档可生成并导出三种格式</td>
+</tr>
+<tr>
+<td>21</td>
+<td>人员与任务、数据统计、预算执行</td>
+<td>⚠️</td>
+<td>数据正确，但统计页出现&quot;运动员/田径数据冲突&quot;等与活动无关的指标</td>
+</tr>
+<tr>
+<td>22</td>
+<td>活动仿真（开始/暂停/单步/倍速/沙盘/决策/风险/任务表）</td>
+<td>✅</td>
+<td>9 分钟模拟时刻：到场 77/300、签到 25/52、人员 3/27、风险事件因果链可见</td>
+</tr>
+<tr>
+<td>23</td>
+<td>敏感性分析（60 次）</td>
+<td>⚠️</td>
+<td>必须先勾选&quot;我已核对假设&quot;，否则只在页面顶部提示&quot;请先确认假设&quot;，按钮附近无提示</td>
+</tr>
+<tr>
+<td>24</td>
+<td>现场指挥中心（签到/任务/支出/事件登记）</td>
+<td>✅</td>
+<td>空数据不虚构；CSV 导入入口可用</td>
+</tr>
+<tr>
+<td>25</td>
+<td>智能分析（确定性规则 + 待核对清单）</td>
+<td>✅</td>
+<td>&quot;已通过 5/14、严重 0、待核对 9&quot;，明确声明&quot;不是安全评分&quot;</td>
+</tr>
+<tr>
+<td>26</td>
+<td>活动复盘 + 生成复盘文档</td>
+<td>✅</td>
+<td>生成《活动复盘报告 v1 · 手动编辑》并落到文档中心</td>
+</tr>
+<tr>
+<td>27</td>
+<td>设置：主题（4 种）/ 字体 / 背景 / 覆盖层</td>
+<td>⚠️</td>
+<td>主题、覆盖层、背景生效；&quot;大&quot;字号对正文几乎无效（见 P1-7）</td>
+</tr>
+<tr>
+<td>28</td>
+<td>设置：AI 服务（供应商/BaseURL/模型/临时 Key）</td>
+<td>✅</td>
+<td>未配置时按钮禁用、文案解释清楚；密钥只进服务端内存</td>
+</tr>
+<tr>
+<td>29</td>
+<td>未配置 AI 时的降级</td>
+<td>✅</td>
+<td>按钮禁用 + &quot;未配置 API Key，本地引擎已按假设补全信息&quot;</td>
+</tr>
+<tr>
+<td>30</td>
+<td>URL 参数 <code>?preset=</code> / <code>?idea=&amp;start=1</code></td>
+<td>⚠️</td>
+<td>有效 ID 正常；<strong>无效 ID 会生成空标题方案</strong>（见 P1-3）</td>
+</tr>
+<tr>
+<td>31</td>
+<td>移动端导航（汉堡菜单）</td>
+<td>✅</td>
+<td>4 个入口收纳，面板 358×234</td>
+</tr>
+<tr>
+<td>32</td>
+<td>三档分辨率无横向溢出</td>
+<td>✅</td>
+<td>390 / 768 / 1440 的 <code>scrollWidth</code> 均等于视口宽</td>
+</tr>
+<tr>
+<td>33</td>
+<td>接口安全（Host/Origin/大小/限流/占位）</td>
+<td>✅</td>
+<td>伪造 Host→403、跨域 Origin→403、非 JSON→415、坏 JSON→400、<code>/api/ideas/convert</code>→501</td>
+</tr>
+<tr>
+<td>34</td>
+<td>静态资源缓存与压缩</td>
+<td>❌</td>
+<td>无 <code>Cache-Control</code>、无 <code>ETag</code>/<code>Last-Modified</code>、不支持 gzip（见 P0-2）</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>五、问题清单</h2>
+<h3>P0-1　深色模式下首页几乎不可读</h3>
+<p><strong>现象</strong>：切换到&quot;深色模式&quot;后，首页仍使用浅色纸张背景图，但文字颜色已切到浅色（<code>#e4eee5</code>），标题、正文、示例按钮全部糊在背景里；<code>#home</code> 一次扫描产生 <strong>77 处对比度违规</strong>（浅色模式同页为 64 处）。</p>
+<p><img src="img/01-dark-home.png" alt="深色模式首页"></p>
+<p><strong>原因推断</strong>：<code>settings.css</code> 里 <code>html[data-theme=dark]</code> 只覆盖了 <code>body</code>、卡片、按钮的颜色，没有覆盖首页 <code>.hero</code> 的背景图（<code>hero-paper-background.png</code>）与 <code>.hero-copy</code> 的文字；而设置页本身是纯色背景，所以设置页看起来是正常的（下图），容易漏测。</p>
+<p><img src="img/02-dark-settings.png" alt="深色模式设置页正常"></p>
+<p><strong>影响</strong>：深色模式是&quot;设置&quot;里的一级选项，用户一旦选中，首页基本不可用，属于功能性阻断。</p>
+<p><strong>建议</strong>：</p>
+<ol>
+<li>深色模式下隐藏/替换纸张背景（或叠加深色遮罩 <code>rgba(20,28,24,.88)</code>）；</li>
+<li>给 <code>.hero</code>、<code>.preset-*</code>、<code>.idea-examples</code> 明确深色背景与前景变量；</li>
+<li>增加一条回归：切主题后对 4 个路由跑 axe，违规数必须为 0。</li>
+</ol>
+<p><strong>验收标准</strong>：深色模式下首页、需求页、工作台、项目页、设置页 axe 对比度违规 = 0，且肉眼可读。</p>
+<hr>
+<h3>P0-2　首屏 6.97 MB，服务端零缓存、零压缩</h3>
+<p><strong>实测</strong>（<code>/#home</code>，无缓存冷启动）：</p>
+<table>
+<thead>
+<tr>
+<th>资源</th>
+<th>传输体积</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>hero-paper-background.png</code></td>
+<td>2,355 KB</td>
+</tr>
+<tr>
+<td><code>hero-planning.png</code></td>
+<td>1,610 KB</td>
+</tr>
+<tr>
+<td><code>activity-lab-logo-v2.png</code></td>
+<td>887 KB <strong>×2 次</strong></td>
+</tr>
+<tr>
+<td><code>index-*.js</code></td>
+<td>746 KB</td>
+</tr>
+<tr>
+<td><code>index-*.css</code></td>
+<td>107 KB</td>
+</tr>
+<tr>
+<td>其余 webp 缩略图</td>
+<td>约 380 KB</td>
+</tr>
+<tr>
+<td><strong>合计</strong></td>
+<td><strong>6,969 KB</strong></td>
+</tr>
+</tbody></table>
+<p>三个叠加问题：</p>
+<ol>
+<li><strong>图片未优化</strong>：Logo 原图 1254×1254（887 KB），页面上只显示 40px；<code>hero-paper-background.png</code> 1672×941 却 2.3 MB；全部 PNG，没有 WebP/AVIF，也没有 <code>srcset</code>。全站 7 张图合计约 10 MB。</li>
+<li><strong>同一张图下载两次</strong>：顶栏与页脚各一个 <code>&lt;img src=&quot;/images/activity-lab-logo-v2.png&quot;&gt;</code>，浏览器性能条目里记录了两次 887 KB 传输。</li>
+<li><strong>静态服务没有缓存策略</strong>：响应头只有 <code>Content-Type</code>，无 <code>Cache-Control</code>、无 <code>ETag</code>、无 <code>Last-Modified</code>；带 <code>Accept-Encoding: gzip</code> 请求 JS 也返回未压缩的 746 KB（gzip 后应为 253 KB）。</li>
+</ol>
+<p><strong>影响</strong>：弱网/移动流量下首屏要 5–15 秒；每次刷新都重新下载约 7 MB；流量成本高。这是当前产品最大的&quot;体感&quot;问题，也是 Lighthouse 分数的主要扣分项。</p>
+<p><strong>建议</strong>（按性价比排序）：</p>
+<ol>
+<li>Logo 生成多尺寸（32/64/128）并转 WebP，预计 887 KB → 3 KB；</li>
+<li>纸张/插画背景转 WebP + 质量 80，预计 2.3 MB → 150 KB；</li>
+<li>页脚复用顶栏图片（缓存或改用一个 <code>&lt;img&gt;</code>），或直接内联 SVG；</li>
+<li><code>server/index.mjs</code> 增加 <code>Cache-Control: public, max-age=31536000, immutable</code>（<code>/assets/*</code> 带 hash）、<code>max-age=604800</code>（<code>/images/*</code>），并支持 <code>ETag</code> + 304；</li>
+<li>启用 gzip/brotli（Node 原生 <code>zlib</code> 即可，或前面挂 Nginx）；</li>
+<li><code>vite.config.ts</code> 对 <code>react</code>/<code>lucide-react</code>/<code>docx</code>/<code>exceljs</code>/<code>pdfkit</code> 做 <code>manualChunks</code> 或动态 <code>import()</code>，把首屏 JS 从 746 KB 降下来。</li>
+</ol>
+<p><strong>验收标准</strong>：首屏传输 &lt; 800 KB；重复访问 304 命中率 &gt; 90%；Lighthouse Performance ≥ 80。</p>
+<hr>
+<h3>P1-1　移动端：六阶段面板把主内容推到第 2 屏</h3>
+<p><strong>实测</strong>（390×844）：工作区顶部到页签导航的距离 <strong>1,630 px</strong>，其中&quot;PLANNING JOURNEY 让每一步，都有方向&quot;面板单独占 <strong>1,129 px</strong>（约 1.3 屏）。用户从&quot;我的活动&quot;进入后，要滚过近两屏才能看到「活动概览 / 活动策划 / 智能分析 / 模拟与执行 / 活动复盘」。</p>
+<p><img src="img/03-mobile-journey.png" alt="移动端工作台"></p>
+<p><strong>影响</strong>：移动端首屏被&quot;进度说明&quot;占满，看不出这个页面能干什么；桌面端同样要滚一屏（工作区首屏几乎只有进度条和&quot;当前阶段 1/6&quot;）。</p>
+<p><strong>建议</strong>：</p>
+<ul>
+<li>移动端把六阶段面板折叠为一行摘要（<code>0/6 已核对 ▾</code>），点击展开；</li>
+<li>桌面端把它挪到右侧栏或&quot;活动概览&quot;卡片内，不与主 tab 抢首屏；</li>
+<li>首屏优先给&quot;活动基本信息 + 三个主操作&quot;。</li>
+</ul>
+<p><strong>验收标准</strong>：390 宽下从进入工作区到看见主 tab 不超过 1 屏（≤ 700 px）。</p>
+<hr>
+<h3>P1-2　小字号 + 低对比度（全站性问题）</h3>
+<p><strong>实测</strong>：</p>
+<ul>
+<li>首页有 <strong>65 处</strong>文字 &lt; 12px，最小 10px；<code>preset-badge</code>（10px）、<code>preset-metrics</code>（11px）、<code>mini-label</code>（12px）。</li>
+<li>axe 对比度违规：首页 64 处、需求页 11 处、策划页 6 处、模拟页 12 处、项目页 3 处。</li>
+<li>典型数值：</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>元素</th>
+<th>前景 / 背景</th>
+<th>对比度</th>
+<th>要求</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>.preset-badge</code>（10px 粗体）</td>
+<td><code>#6f8a5c</code> / <code>#eef5e2</code></td>
+<td><strong>3.43</strong></td>
+<td>4.5</td>
+</tr>
+<tr>
+<td><code>.preset-metrics</code>（11px）</td>
+<td><code>#6c8168</code> / <code>#f6f9f0</code></td>
+<td><strong>3.96</strong></td>
+<td>4.5</td>
+</tr>
+<tr>
+<td><code>.preset-group-note</code>（12px）</td>
+<td><code>#8b9a88</code> / <code>#fffefb</code></td>
+<td><strong>2.94</strong></td>
+<td>4.5</td>
+</tr>
+<tr>
+<td><code>.mini-label</code>（12px 粗体）</td>
+<td><code>#658158</code> / <code>#fffefb</code></td>
+<td>4.3</td>
+<td>4.5</td>
+</tr>
+<tr>
+<td>点击区「清除旧记录」</td>
+<td>95×19 px</td>
+<td>高度 19</td>
+<td>≥ 24（WCAG 2.2）/ 建议 44</td>
+</tr>
+</tbody></table>
+<p><img src="img/06-intake.png" alt="需求确认页"></p>
+<p><strong>影响</strong>：项目的主要用户是学生社团/行政人员，常在投影、笔记本低亮度或户外使用；10–11px 的灰绿色标签在真实环境里几乎读不到。</p>
+<p><strong>建议</strong>：</p>
+<ul>
+<li>建立字号梯度：正文 ≥ 14px，说明文字 ≥ 12px，标签 ≥ 11px 且加粗；</li>
+<li>把 <code>#6c8168</code>、<code>#8b9a88</code> 等灰绿统一改深一档（目标 ≥ 4.5:1）；</li>
+<li>「清除旧记录」「重新描述」等文字按钮加内边距，保证点击高度 ≥ 32px（移动端 44px）；</li>
+<li>在 CI 里加 axe 对比度断言。</li>
+</ul>
+<hr>
+<h3>P1-3　失效的 <code>?preset=</code> 链接会生成一份空方案</h3>
+<p><strong>复现</strong>：访问 <code>http://127.0.0.1:8787/?preset=does-not-exist</code></p>
+<p><strong>现象</strong>：</p>
+<ul>
+<li>顶部 Toast：<code>已套用预设「」，下面的内容都可以修改</code>（标题为空）；</li>
+<li>进入需求页后，&quot;参与人群&quot;变成&quot;目标参与者&quot;、&quot;活动目标&quot;变成一句通用文案，人数/预算/日期全部缺失；</li>
+<li>没有任何&quot;预设不存在&quot;的提示，用户会以为自己点错了什么。</li>
+</ul>
+<p><strong>影响</strong>：分享链接是产品的重要传播路径（README 明确宣传 <code>?preset=</code>、<code>?idea=</code>），参数一错就产出一份&quot;半残&quot;草稿，且会被自动保存成项目。</p>
+<p><strong>建议</strong>：<code>createBriefFromPreset</code> 找不到 ID 时返回 <code>null</code>，<code>startFromPreset</code> 提示&quot;预设不存在，已回到默认输入&quot;并停留在首页；同时对 <code>?idea=</code> 增加最小长度与空值保护（目前 &lt; 4 字符会忽略，行为正确，可保持一致）。</p>
+<hr>
+<h3>P1-4　键盘焦点不可见、弹窗不接管焦点</h3>
+<p><strong>实测 1</strong>：首页大输入框获得焦点后，<code>outline: none</code>、<code>box-shadow: none</code>、<code>border: 0</code>，<strong>没有任何视觉变化</strong>（截图对比空白）。</p>
+<p><img src="img/08-focus-textarea.png" alt="输入框无焦点样式"></p>
+<p><strong>实测 2</strong>：打开「方案记录」弹窗后，<code>document.activeElement</code> 仍是触发按钮（<code>BUTTON 方案记录</code>），焦点没有进入弹窗，也没有焦点陷阱；Esc 可以关闭（这点正常）。</p>
+<p><strong>影响</strong>：纯键盘用户无法判断当前位置；屏幕阅读器用户在弹窗打开后仍会读到背后的页面。</p>
+<p><strong>建议</strong>：</p>
+<ul>
+<li>全局 <code>:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }</code>，输入框用 <code>box-shadow: 0 0 0 3px rgba(49,88,60,.25)</code>；</li>
+<li>弹窗打开时 <code>focus()</code> 到标题或第一个可交互元素，关闭时焦点归还触发按钮；</li>
+<li>使用 <code>role=&quot;dialog&quot; aria-modal=&quot;true&quot;</code> + 简单焦点陷阱（Tab 循环）。</li>
+</ul>
+<hr>
+<h3>P1-5　&quot;数据统计&quot;页对非田径活动显示田径指标</h3>
+<p><strong>复现</strong>：音乐节 / 产品发布会方案 → 活动策划 → 数据统计。</p>
+<p><strong>现象</strong>：固定显示「运动员 0」「有效成绩 0」「团体积分」「当前未发现已检测范围内的<strong>田径数据冲突</strong>；正式规程仍需人工核查」——对一场音乐节来说完全是噪音。代码位置：<code>src/workbench/WorkspaceHub.tsx:152-154</code>，指标数组与文案是写死的。</p>
+<p><strong>影响</strong>：这是&quot;AI 策划&quot;类产品最伤信任的一类问题——用户会立刻怀疑&quot;模板拼装、不懂我的活动&quot;。</p>
+<p><strong>建议</strong>：按 <code>data.scene</code>（athletics / performance / 通用）切换指标集；无相关数据时整块隐藏，而不是显示 0；把&quot;田径&quot;字样换成中性的&quot;数据一致性检查&quot;。</p>
+<hr>
+<h3>P1-6　每次自动保存都弹 Toast，遮挡标题区</h3>
+<p><strong>现象</strong>：进入工作区后，任何一次字段变化都会触发 <code>方案已保存在这台设备</code> 的 Toast，位于页面顶部居中，正好压住工作区标题；连续编辑时会反复出现（截图中几乎每张都有）。</p>
+<p><strong>影响</strong>：打断阅读、遮挡内容，且&quot;保存成功&quot;属于低价值高频反馈，不需要弹窗级别的提示。</p>
+<p><strong>建议</strong>：只在保存<strong>失败</strong>时用 Toast；成功状态收敛到顶部已有的「已保存：21:59:21」小字（这个设计本身很好），或做 1 秒淡出的角落提示。</p>
+<hr>
+<h3>P1-7　字号设置&quot;大&quot;对正文无效</h3>
+<p><strong>实测</strong>：<code>html[data-font=large] :is(p,li,td,...) { font-size: max(1em, 16px) }</code>。因为多数正文本来就是 16px，选&quot;大&quot;后 <code>.hero-copy p</code> 仍是 16px、<code>h1</code> 仍是 32px，<strong>几乎没有任何变化</strong>；选&quot;小&quot;时正文从 16px → 14.4px（生效）。</p>
+<p><strong>影响</strong>：这是一个&quot;看起来有、实际没有&quot;的控件，对需要放大字号的用户（中老年组织者、视力不佳者）等于失效。</p>
+<p><strong>建议</strong>：改为整体缩放（<code>html[data-font=large]{font-size:18px}</code> + 全站 rem），或对 <code>h1~h4</code>、正文、表格分别给 1.15/1.1 倍，并在设置页提供实时预览。</p>
+<hr>
+<h3>P2 级问题（建议排期但可接受）</h3>
+<table>
+<thead>
+<tr>
+<th>编号</th>
+<th>问题</th>
+<th>说明与建议</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>P2-1</td>
+<td>数字输入静默钳制</td>
+<td>人数填 0 → 变 500，填 -5 → 变 1，填 999999999 → 变 200000，无任何提示；建议失焦时提示&quot;已按 1–200000 调整&quot;或显示校验错误</td>
+</tr>
+<tr>
+<td>P2-2</td>
+<td>预算显示格式不一致</td>
+<td>输入框显示 <code>50000</code>，摘要 chip 显示 <code>¥50,000</code>；建议输入框也加千分位或统一不加</td>
+</tr>
+<tr>
+<td>P2-3</td>
+<td>&quot;单日时长 8 小时 + 1 天&quot; 语义重叠</td>
+<td>两个控件挨着，用户容易只改一个；建议合并为&quot;总时长/天数&quot;或加说明</td>
+</tr>
+<tr>
+<td>P2-4</td>
+<td>活动类型是 36 项原生下拉</td>
+<td>无搜索、无分组；建议改为带搜索的分组选择器（现有 10 类正好可做 optgroup）</td>
+</tr>
+<tr>
+<td>P2-5</td>
+<td>「已识别」标签过度自信</td>
+<td>用户只说&quot;400 名新生&quot;，&quot;参与人群=新生及家长&quot;来自推断却标「已识别」；建议区分「识别」「推断」三档</td>
+</tr>
+<tr>
+<td>P2-6</td>
+<td>项目卡片主体不可点</td>
+<td>点卡片无反应，只有「继续编辑」按钮能进入；建议整卡可点 + hover 反馈</td>
+</tr>
+<tr>
+<td>P2-7</td>
+<td>术语不统一</td>
+<td>顶部同时有「方案记录」「清除旧记录」，页面里又叫「活动项目」「活动资料」「检查点」；建议统一为&quot;活动项目 / 方案版本&quot;</td>
+</tr>
+<tr>
+<td>P2-8</td>
+<td>未实现功能占据版面</td>
+<td>「AI 转为策划 · 待接入」及 <code>/api/ideas/convert</code> 501，界面按钮灰但占一整条横栏；建议收到&quot;更多&quot;里或标注&quot;即将上线&quot;</td>
+</tr>
+<tr>
+<td>P2-9</td>
+<td>敏感性分析缺少就近反馈</td>
+<td>未勾选&quot;同意假设&quot;时只有顶部一行&quot;请先确认假设&quot;，按钮旁边无提示；建议按钮禁用 + tooltip</td>
+</tr>
+<tr>
+<td>P2-10</td>
+<td>长方案默认全折叠</td>
+<td>12 个模块默认收起，审阅要逐章点开；建议提供&quot;展开全部 / 只看重点模块&quot;开关</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>六、UI 与视觉审查</h2>
+<h3>6.1 做得好的地方</h3>
+<ul>
+<li><strong>风格统一</strong>：纸张底纹 + 植物插画 + 墨绿主色，和&quot;策划案/手账&quot;的心智模型一致，比通用 SaaS 蓝更有记忆点。</li>
+<li><strong>层级清晰</strong>：<code>REQUIREMENT CHECK</code> / <code>YOUR EVENT BLUEPRINT</code> / <code>PLANNING JOURNEY</code> 这类小标签把&quot;英文眉题 + 中文标题&quot;的节奏做得很好。</li>
+<li><strong>空态友好</strong>：项目页、文档中心、人员表都有明确的空态文案与行动按钮，没有&quot;白屏&quot;。</li>
+<li><strong>关键数字前置</strong>：需求页顶部的 <code>4 小时 · 400 人 · ¥8,000</code> 摘要非常好用。</li>
+</ul>
+<p><img src="img/06-intake.png" alt="需求确认"></p>
+<h3>6.2 主要问题</h3>
+<ol>
+<li><strong>首屏信息密度与主次</strong>：工作区首屏被&quot;六阶段进度&quot;占满，真正的内容（12 模块）要往下滚。像 <code>05-plan-overview.png</code> 这样，第一屏几乎只有进度条和&quot;当前阶段&quot;。</li>
+<li><strong>字号偏小、灰度偏高</strong>：见 P1-2。设计稿上的灰绿在真实屏幕上非常&quot;虚&quot;。</li>
+<li><strong>卡片套卡片</strong>：工作台里 <code>wb-hub &gt; wb-card &gt; wb-section-heading</code> 多层白底卡片，边界弱，扫视成本高。</li>
+<li><strong>按钮风格过多</strong>：主按钮（深绿实心）、次按钮（描边）、文字按钮、紫色 AI 按钮、蓝色 tab 下划线、灰色 chip 同时出现，视觉噪音偏大。建议收敛为&quot;主 / 次 / 文字&quot;三级 + 一个 AI 强调色。</li>
+<li><strong>右下角紫色悬浮助手按钮</strong>固定遮挡内容（移动端尤其明显），建议滚动时半透明或收进底栏。</li>
+</ol>
+<p><img src="img/16-workspace-top.png" alt="工作台顶部"></p>
+<p><img src="img/07-plan-tab.png" alt="策划页"></p>
+<h3>6.3 响应式</h3>
+<table>
+<thead>
+<tr>
+<th>断点</th>
+<th>结论</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1440</td>
+<td>布局稳定，无溢出；三栏表单舒适</td>
+</tr>
+<tr>
+<td>768</td>
+<td>无溢出；预设卡片两列正常；项目卡片间距偏松</td>
+</tr>
+<tr>
+<td>390</td>
+<td>无横向滚动；导航收进汉堡菜单；但六阶段面板过长（P1-1），悬浮按钮遮挡内容</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>七、性能</h2>
+<h3>7.1 实测数据</h3>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>数值</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>首屏传输</td>
+<td>6,969 KB</td>
+</tr>
+<tr>
+<td>其中图片</td>
+<td>5,752 KB（82%）</td>
+</tr>
+<tr>
+<td>JS（未压缩 / gzip）</td>
+<td>746 KB / 253 KB</td>
+</tr>
+<tr>
+<td>CSS</td>
+<td>107 KB / 23 KB</td>
+</tr>
+<tr>
+<td>DOMContentLoaded（本机）</td>
+<td>81 ms</td>
+</tr>
+<tr>
+<td>缓存策略</td>
+<td>无 <code>Cache-Control</code> / 无 <code>ETag</code> / 不支持 304</td>
+</tr>
+<tr>
+<td>压缩</td>
+<td>未启用 gzip/brotli</td>
+</tr>
+</tbody></table>
+<blockquote>
+<p>本机是回环网络，所以 DCL 只有 81 ms；真实网络下 7 MB 的体感延迟主要来自带宽，而不是 CPU。这也是为什么&quot;本地测很快&quot;容易掩盖问题。</p>
+</blockquote>
+<h3>7.2 优化优先级</h3>
+<table>
+<thead>
+<tr>
+<th>优先级</th>
+<th>动作</th>
+<th>预计收益</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>Logo/背景图转 WebP + 多尺寸</td>
+<td>−5.5 MB</td>
+</tr>
+<tr>
+<td>2</td>
+<td>静态资源加 <code>Cache-Control</code> + <code>ETag</code> + 304</td>
+<td>二次访问 ≈ 0 请求体</td>
+</tr>
+<tr>
+<td>3</td>
+<td>开启 gzip（Node <code>zlib</code>）</td>
+<td>JS/CSS −75%</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>manualChunks</code> 拆分 docx/exceljs/pdfkit</td>
+<td>首屏 JS −40%</td>
+</tr>
+<tr>
+<td>5</td>
+<td>图片 <code>loading=&quot;lazy&quot;</code> + <code>srcset</code></td>
+<td>首屏只加载可视区</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>八、无障碍（WCAG 2.1 AA）</h2>
+<table>
+<thead>
+<tr>
+<th>检查项</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>对比度</td>
+<td>❌ 首页 64 / 需求 11 / 策划 6 / 模拟 12 / 项目 3 / 深色首页 77</td>
+</tr>
+<tr>
+<td>图片替代文本</td>
+<td>✅ 装饰图 <code>alt=&quot;&quot;</code>，品牌图有 alt 语义（通过 <code>&lt;a&gt;</code> 文本）</td>
+</tr>
+<tr>
+<td>表单标签</td>
+<td>✅ 输入框均有 <code>aria-label</code> 或 <code>&lt;label&gt;</code></td>
+</tr>
+<tr>
+<td>键盘可达</td>
+<td>✅ Tab 顺序合理（品牌 → 我的活动 → 设置 → 方案记录 → 清除旧记录 → 输入框 → 示例）</td>
+</tr>
+<tr>
+<td>焦点可见</td>
+<td>❌ 输入框无焦点样式</td>
+</tr>
+<tr>
+<td>弹窗焦点管理</td>
+<td>❌ 打开后焦点不进入、无陷阱（Esc 可关）</td>
+</tr>
+<tr>
+<td>点击目标</td>
+<td>⚠️ 「清除旧记录」95×19、「重新描述」100×26、部分复选框 18×18</td>
+</tr>
+<tr>
+<td>状态播报</td>
+<td>✅ 关键区域有 <code>role=&quot;status&quot;</code> / <code>aria-live</code>（如修改预览、保存状态）</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>九、内容与文案质量</h2>
+<p><strong>做得好的</strong>：预算、岗位、物资的数量随人数联动；导出文档里的&quot;估算值，不是报价&quot;声明；模拟页反复强调&quot;不代表真实发生概率&quot;；复盘页坚持&quot;无数据不虚构&quot;。这些&quot;边界声明&quot;比同类产品克制得多。</p>
+<p><strong>需要修的</strong>：</p>
+<ol>
+<li>非田径活动出现&quot;田径&quot;字样（P1-5）。</li>
+<li>方案正文出现&quot;具体场地待定&quot;但仍写&quot;体育场馆&quot;，与工作台顶部&quot;地点待填写&quot;三处口径不一。</li>
+<li>自动命名&quot;12月校园迎新 / 12月音乐节&quot;缺少主题与主办方信息，作为导出文件名辨识度低。</li>
+<li><code>AI 转为策划 · 待接入</code> 与&quot;组织者思路文档&quot;入口放在策划页最上方，用户第一眼会以为核心功能不可用。</li>
+<li>类型下拉共 36 项（已核对无重复文案），但&quot;展览/展会&quot;与&quot;展览/艺术展&quot;相邻且语义接近，建议合并或补充说明。</li>
+</ol>
+<hr>
+<h2>十、改进路线图</h2>
+<h3>第 1 周（阻断项）</h3>
+<table>
+<thead>
+<tr>
+<th>序</th>
+<th>事项</th>
+<th>预估</th>
+<th>验收</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>深色模式主题变量补全（首页/预设/卡片）</td>
+<td>4 h</td>
+<td>4 个路由 axe 对比度 0 违规</td>
+</tr>
+<tr>
+<td>2</td>
+<td>图片压缩 + WebP + 去重</td>
+<td>3 h</td>
+<td>首屏 &lt; 1.5 MB</td>
+</tr>
+<tr>
+<td>3</td>
+<td>静态资源缓存头 + ETag + gzip</td>
+<td>3 h</td>
+<td>二次访问 304；JS 传输 253 KB</td>
+</tr>
+<tr>
+<td>4</td>
+<td>字号/对比度统一调整</td>
+<td>4 h</td>
+<td>正文 ≥ 14px，对比度 ≥ 4.5</td>
+</tr>
+</tbody></table>
+<h3>第 2 周（体验项）</h3>
+<table>
+<thead>
+<tr>
+<th>序</th>
+<th>事项</th>
+<th>预估</th>
+<th>验收</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>5</td>
+<td>移动端六阶段折叠</td>
+<td>4 h</td>
+<td>390 宽下 1 屏内见主 tab</td>
+</tr>
+<tr>
+<td>6</td>
+<td>焦点样式 + 弹窗焦点管理</td>
+<td>3 h</td>
+<td>键盘可完整操作方案记录</td>
+</tr>
+<tr>
+<td>7</td>
+<td>失效 preset 兜底</td>
+<td>1 h</td>
+<td>无效 ID 有提示且不建项目</td>
+</tr>
+<tr>
+<td>8</td>
+<td>统计页按场景切换指标</td>
+<td>3 h</td>
+<td>音乐节不出现&quot;运动员/田径&quot;</td>
+</tr>
+<tr>
+<td>9</td>
+<td>Toast 收敛为失败提示</td>
+<td>1 h</td>
+<td>正常保存无遮挡</td>
+</tr>
+<tr>
+<td>10</td>
+<td>字号&quot;大&quot;改为整体缩放</td>
+<td>2 h</td>
+<td>三个档位肉眼可辨</td>
+</tr>
+</tbody></table>
+<h3>第 3–4 周（打磨项）</h3>
+<ol start="11">
+<li>活动类型搜索/分组选择器；12. 数字输入校验提示；13. 预算千分位统一；14. 项目卡片整卡可点；15. 术语统一；16. 代码分割；17. CI 接入 axe + Lighthouse 门禁。</li>
+</ol>
+<hr>
+<h2>十一、附录</h2>
+<h3>A. 验证脚本</h3>
+<p>全部脚本位于 <code>C:\Users\Lenovo\Documents\deepseek-harness\default-workspace\.work\e2e\</code>：</p>
+<p><code>explore.mjs</code>（路由巡检）、<code>audit.mjs</code>（布局/axe）、<code>contrast.mjs</code>（对比度明细）、<code>flow-intake.mjs</code>、<code>flow-plan.mjs</code>、<code>func-plan*.mjs</code>（预算/复制/下载/修改/应急）、<code>func-workspace.mjs</code>（工具/文档/人员/统计）、<code>func-docs2.mjs</code>（导出/上传）、<code>func-import-sim.mjs</code>（导入/模拟）、<code>func-projects*.mjs</code>（项目/设置）、<code>check-content.mjs</code>（内容一致性）、<code>check-persist*.mjs</code>（持久化）、<code>check-edit*.mjs</code>（表格编辑）、<code>check-analysis.mjs</code>、<code>check-journey.mjs</code>、<code>check-dark-numbers.mjs</code>、<code>check-ux.mjs</code>、<code>check-focus.mjs</code>、<code>check-tab.mjs</code>、<code>check-weight.mjs</code>、<code>check-compress.mjs</code>、<code>api-check.mjs</code>、<code>api-host.mjs</code>。</p>
+<h3>B. 截图清单</h3>
+<table>
+<thead>
+<tr>
+<th>文件</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>img/01-dark-home.png</code></td>
+<td>深色模式首页（P0-1）</td>
+</tr>
+<tr>
+<td><code>img/02-dark-settings.png</code></td>
+<td>深色模式设置页（正常，便于对比）</td>
+</tr>
+<tr>
+<td><code>img/03-mobile-journey.png</code></td>
+<td>移动端六阶段面板（P1-1）</td>
+</tr>
+<tr>
+<td><code>img/04-mobile-home.png</code></td>
+<td>移动端首页（正常）</td>
+</tr>
+<tr>
+<td><code>img/05-plan-overview.png</code></td>
+<td>工作区首屏</td>
+</tr>
+<tr>
+<td><code>img/06-intake.png</code></td>
+<td>需求确认页</td>
+</tr>
+<tr>
+<td><code>img/07-plan-tab.png</code></td>
+<td>策划方案页</td>
+</tr>
+<tr>
+<td><code>img/08-focus-textarea.png</code></td>
+<td>输入框无焦点样式（P1-4）</td>
+</tr>
+<tr>
+<td><code>img/09-documents.png</code></td>
+<td>文档中心</td>
+</tr>
+<tr>
+<td><code>img/10-materials.png</code></td>
+<td>活动资料</td>
+</tr>
+<tr>
+<td><code>img/11-simulation.png</code></td>
+<td>仿真实验室</td>
+</tr>
+<tr>
+<td><code>img/13-import.png</code></td>
+<td>CSV 字段映射导入</td>
+</tr>
+<tr>
+<td><code>img/15-history.png</code></td>
+<td>方案记录弹窗</td>
+</tr>
+</tbody></table>
+<h3>C. 复现命令</h3>
+<pre><code class="language-bash">cd &quot;C:\Users\Lenovo\Documents\ChatGPT\3min labs\3MinLab&quot;
+npm install &amp;&amp; npm run build &amp;&amp; npm test
+API_PORT=8787 node server/index.mjs     # http://127.0.0.1:8787
+
+# 备份（如再次需要）
+git add -A -- . &#39;:!local-server*.log&#39;
+git commit -m &quot;backup: ...&quot; &amp;&amp; git push origin HEAD:main
+</code></pre>
+<h3>D. 一句话总结</h3>
+<p><strong>底子很好——规则引擎可解释、导出是真的、数据是自洽的、边界声明是克制的；现在缺的是&quot;让更多人能看清、能打开&quot;的最后一公里：深色模式、首屏 7 MB、字号与对比度、移动端信息架构。</strong></p>
+</body></html>
