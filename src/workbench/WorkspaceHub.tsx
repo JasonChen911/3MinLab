@@ -1,3 +1,8 @@
+import {aiRequest} from '../services/AIService';
+import LifecyclePanel from '../lifecycle/LifecyclePanel';
+import {loadPreferences} from '../settings/preferences';
+import SimulationLab from '../simulation/SimulationLab';
+import { fingerprint as simulationFingerprint } from '../simulation/model';
 import PlanningFlow from './PlanningFlow';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ArrowRight, CalendarDays, FileText, LayoutDashboard, Users, Wrench, BarChart3, MapPin, CheckCircle2, Sparkles } from 'lucide-react';
@@ -21,7 +26,8 @@ import MaterialsCenter from '../materials/MaterialsCenter';
 import { expenseStats } from '../materials/import';
 import { PROJECT_STATUSES } from '../projects/model';
 import './workbench.css';
-const tabs=[{id:'overview',name:'活动概览',icon:LayoutDashboard},{id:'plan',name:'策划方案',icon:FileText},{id:'materials',name:'活动资料',icon:FileText},{id:'tools',name:'专属工具箱',icon:Wrench},{id:'documents',name:'文档中心',icon:FileText},{id:'people',name:'人员与任务',icon:Users},{id:'stats',name:'数据统计',icon:BarChart3}];
+const tabs=[{id:'overview',name:'活动概览',icon:LayoutDashboard},{id:'plan',name:'策划方案',icon:FileText},{id:'materials',name:'活动资料',icon:FileText},{id:'tools',name:'专属工具箱',icon:Wrench},{id:'documents',name:'文档中心',icon:FileText},{id:'people',name:'人员与任务',icon:Users},{id:'stats',name:'数据统计',icon:BarChart3},{id:'simulation',name:'活动模拟',icon:BarChart3}];
+const groups=[{id:'overview',name:'活动概览',items:['overview']},{id:'plan',name:'活动策划',items:['plan','materials','tools','documents','people','stats']},{id:'analysis',name:'智能分析',items:['analysis']},{id:'simulation',name:'模拟与执行',items:['simulation','live']},{id:'review',name:'活动复盘',items:['review']}];
 const categories=['全部','活动策划文件','报名与人员资料','活动流程文件','任务分工文件','预算与物资文件','活动专属文件','成绩与统计文件','总结与反馈文件'];
 export default function WorkspaceHub({plan,apiKey,children,onPlanChange,onRestoreProject,assistantRequest}:{plan:EventPlan;apiKey:string;children:ReactNode;onPlanChange?:(plan:EventPlan)=>void;onRestoreProject?:(project:import('../projects/model').ActivityProject)=>void;assistantRequest?:{id:string;text:string}|null}) {
   const [loaded]=useState(()=>loadWorkspace(plan));const [data,setData]=useState(loaded.data);const [tab,setTab]=useState('overview');const [status,setStatus]=useState(loaded.error);const [activeTool,setActiveTool]=useState('');const [selectedDoc,setSelectedDoc]=useState('');const [query,setQuery]=useState('');const [category,setCategory]=useState('全部');const [busy,setBusy]=useState('');const [library,setLibrary]=useState(loadTemplates);const [aiDraft,setAiDraft]=useState('');const [suggestion,setSuggestion]=useState<{toolIds:string[];fields:string[];reason:string}|null>(null);const [readError,setReadError]=useState(!!loaded.error);
@@ -78,8 +84,15 @@ export default function WorkspaceHub({plan,apiKey,children,onPlanChange,onRestor
   }
   async function ai(mode:'document'|'recommend') {
     setBusy(mode==='document'?'AI 正在起草…':'AI 正在分析工具…');
-    try {const response=await fetch('/api/documents/ai',{method:'POST',headers:{'Content-Type':'application/json',...(apiKey?{'X-DeepSeek-API-Key':apiKey}:{})},body:JSON.stringify({mode,name:doc?.name??'',context:contextVariables(data,plan),tools:TOOLS.map(tool=>({id:tool.id,name:tool.name})),instruction:mode==='document'?doc?.text??'':'根据活动目标、流程、参与对象推荐工具；不创建计算规则'})});const result=await response.json();if(!response.ok)throw new Error(result.error??'AI 请求失败');if(mode==='document')setAiDraft(result.text);else setSuggestion(result);}
+    try {const result=await aiRequest<{text:string;toolIds:string[];fields:string[];reason:string}>('/api/documents/ai',{mode,name:doc?.name??'',context:contextVariables(data,plan),tools:TOOLS.map(tool=>({id:tool.id,name:tool.name})),instruction:mode==='document'?doc?.text??'':'根据活动目标、流程、参与对象推荐工具；不创建计算规则'});if(mode==='document')setAiDraft(result.text);else setSuggestion(result);}
     catch(error){setStatus(error instanceof Error?error.message:'AI 请求失败');}finally{setBusy('');}
+  }
+  async function applySimulation(notes:string[],base:string) {
+    if(simulationFingerprint(plan,data)!==base)throw new Error('正式方案已变化，请基于最新方案重新模拟');
+    const module=plan.modules.find(m=>m.id==='risk');if(!module)throw new Error('正式方案缺少风险章节');
+    const next={...plan,modules:plan.modules.map(m=>m.id==='risk'?{...m,blocks:[...m.blocks,{kind:'checklist' as const,title:'仿真复盘后确认的应对措施（待组织者落实）',items:notes}]}:m)};
+    await projectRepository.update(plan.id,current=>{if(!current)throw new Error('请先保存活动');if(current.plan&&JSON.stringify(current.plan)!==JSON.stringify(plan))throw new Error('存档已更新，请重新打开活动');if(current.plan&&current.workspace&&simulationFingerprint(current.plan,current.workspace)!==base)throw new Error('活动资料已被其他操作修改，请重新模拟');return {...current,plan:next,draft:next.brief,versions:[...current.versions,{id:uid(),createdAt:new Date().toISOString(),reason:'应用仿真实验复盘措施',source:'user' as const,before:{plan:current.plan,draft:current.draft,workspace:current.workspace},afterSummary:notes,afterFingerprint:JSON.stringify([next,data]),documentChanges:['策划方案风险章节；手工文档需核对']}].slice(-20)};});
+    onPlanChange?.(next);setStatus('仿真建议已确认写入风险章节');
   }
   function backup() {void downloadProjectBackup(plan.id).then(()=>setStatus('完整活动备份已下载，包含附件原文件')).catch(error=>setStatus(error.message));}
 
@@ -87,9 +100,12 @@ export default function WorkspaceHub({plan,apiKey,children,onPlanChange,onRestor
   const renderCard=(tool:NonNullable<ReturnType<typeof getDefinition>>)=> <article className="wb-tool-card" key={tool.id}><span className="wb-tool-icon"><Wrench size={18}/></span><span className="wb-badge">{data.tools.includes(tool.id)?'已启用':'可添加'}</span><h3>{tool.name}</h3><p>{tool.description}</p><div className="wb-card-foot"><span>{tool.kind==='text'?'文档模板':tool.kind==='table'?'数据表格':'专业工具'}</span><button type="button" onClick={()=>openTool(tool.id)}>{data.tools.includes(tool.id)?'打开工具':'添加并打开'} <ArrowRight size={14}/></button></div></article>;
   return <div className="wb-hub">
     <header className="wb-event-head"><div><span className="mini-label">ACTIVITY WORKSPACE</span><h1>{plan.title}</h1><div className="wb-meta"><span><CalendarDays size={15}/>{plan.brief.dateLabel||'日期待确认'}</span><span><MapPin size={15}/>{data.profile.location||'地点待填写'}</span><span className="wb-badge">{data.profile.status}</span></div></div><button type="button" onClick={backup}>备份活动资料</button></header>
-    <PlanningFlow plan={plan} data={data} onChange={commit} onOpen={setTab} onAssist={text=>{setFlowRequest({id:uid(),text});window.setTimeout(()=>document.getElementById('flow-assistant')?.scrollIntoView({behavior:'smooth'}),50);}}/>
-    <nav className="wb-main-tabs" aria-label="活动工作区">{tabs.map(item=><button key={item.id} type="button" className={tab===item.id?'active':''} aria-current={tab===item.id?'page':undefined} onClick={()=>setTab(item.id)}><item.icon size={17}/>{item.name}</button>)}</nav>
+    {loadPreferences().onboarding&&['overview','plan'].includes(tab)&&<PlanningFlow plan={plan} data={data} onChange={commit} onOpen={setTab} onAssist={text=>{setFlowRequest({id:uid(),text});window.setTimeout(()=>document.getElementById('flow-assistant')?.scrollIntoView({behavior:'smooth'}),50);}}/>}
+    <nav className="wb-main-tabs" aria-label="活动工作区">{groups.map(item=><button key={item.id} type="button" className={item.items.includes(tab)?'active':''} aria-current={item.items.includes(tab)?'page':undefined} onClick={()=>setTab(item.id)}>{item.id==='overview'?<LayoutDashboard size={17}/>:item.id==='plan'?<FileText size={17}/>:item.id==='analysis'?<Sparkles size={17}/>:<BarChart3 size={17}/>} {item.name}</button>)}</nav>
+    {groups.find(g=>g.items.includes(tab))?.items.length!>1&&<nav className="wb-subnav" aria-label="活动分类功能">{groups.find(g=>g.items.includes(tab))!.items.map(id=>{const item=tabs.find(t=>t.id===id);const Icon=item?.icon??LayoutDashboard;return <button key={id} className={id===tab?'active':''} onClick={()=>setTab(id)}><Icon size={16}/>{item?.name??'现场指挥中心'}</button>;})}</nav>}
+    {(['analysis','live','review'] as const).filter(mode=>mode===tab).map(mode=><LifecyclePanel key={mode} mode={mode} plan={plan} data={data} onChange={commit} onRestore={p=>{if(p.workspace){setData(p.workspace);saveWorkspace(p.workspace);}onRestoreProject?.(p);}} onOpen={setTab}/>)}
     {(status||busy)&&<p className={status.includes('失败')||status.includes('不足')||status.includes('异常')?'wb-notice error':'wb-save-status'} role="status">{busy||status}</p>}
+    <div hidden={tab!=='simulation'}><SimulationLab key={plan.id} plan={plan} workspace={data} onApply={applySimulation} onSkip={()=>setTab('plan')}/></div>
     {tab==='overview'&&<>
       <div className="wb-section-heading"><div><h2>让好想法，有序落地。</h2><p>先确认活动资料，再选择需要的执行工具。</p></div><button className="primary" type="button" onClick={()=>setTab('plan')}>查看策划方案 <ArrowRight size={16}/></button></div>
       <div className="wb-metrics">{[['实际报名',data.scene==='athletics'?data.athletics.athletes.filter(a=>a.status!=='退赛').length:(data.tables.registrations?.rows.length??0)],['已启用工具',data.tools.length],['活动文档',data.documents.length],['任务完成',`${completed}/${taskRows.length}`]].map(([label,value])=><div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
@@ -97,6 +113,7 @@ export default function WorkspaceHub({plan,apiKey,children,onPlanChange,onRestor
       <section className="wb-card wb-next"><h3>下一步</h3><button type="button" onClick={()=>setTab('materials')}>上传与管理真实活动资料 <ArrowRight size={15}/></button>{!data.profile.owner&&<button type="button" onClick={()=>document.querySelector<HTMLInputElement>('.wb-form-grid input')?.focus()}>填写主办方与负责人 <ArrowRight size={15}/></button>}<button type="button" onClick={()=>setTab('tools')}>选择活动专属工具 <ArrowRight size={15}/></button><button type="button" onClick={()=>setTab('people')}>登记人员与执行任务 <ArrowRight size={15}/></button><button type="button" onClick={()=>generateDoc('plan')}>生成可编辑策划文档 <ArrowRight size={15}/></button><p className="wb-help">计划规模 {plan.brief.people} 人 · 预算 ¥{plan.brief.budget.toLocaleString()}。计划数据与真实登记分开统计。</p></section></div>
       {readError&&<button type="button" onClick={()=>{if(window.confirm('确认保留原始存档备份后，以当前空白资料重新保存？')){setReadError(false);setStatus('已解除保护，请重新填写并保存。');}}}>已备份原始存档，允许重新保存</button>}
     </>}
+    {tab==='overview'&&<section className="wb-card"><h3>下一步：{data.profile.status==='已结束'?'复盘实际活动': ['即将举行','进行中'].includes(data.profile.status)?'进入现场执行':'检查并检验你的方案'}</h3><p className="wb-help">在虚拟环境中测试你的活动方案，发现可能出现的突发问题。模拟前检查准备度，不需要先完成所有文档。</p><div className="wb-inline-actions"><button type="button" className="primary" onClick={()=>setTab(data.profile.status==='已结束'?'review':['即将举行','进行中'].includes(data.profile.status)?'live':'analysis')}>{data.profile.status==='已结束'?'生成活动复盘':['即将举行','进行中'].includes(data.profile.status)?'进入现场指挥中心':'检查活动方案'}</button><button type="button" onClick={()=>setTab('simulation')}>开始活动模拟</button><button type="button" onClick={()=>setTab('plan')}>暂不模拟，继续策划</button></div></section>}
     {tab==='plan'&&<><OrganizerIdeaUpload plan={plan} workspace={data} onChange={commit}/>{children}</>}
     {tab==='materials'&&<MaterialsCenter plan={plan} workspace={data} onChange={commit}/>}
     {tab==='tools'&&<>

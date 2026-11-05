@@ -2,7 +2,7 @@ import type { EventPlan } from '../types';
 export type Scene = 'athletics' | 'performance' | 'conference' | 'sports' | 'charity' | 'business' | 'competition' | 'community' | 'custom';
 export interface Field { key: string; label: string; type?: 'text' | 'number' | 'date' | 'time'; options?: string[] }
 export interface DataRow { id: string; [key: string]: string }
-export interface DataTable { id: string; name: string; fields: Field[]; rows: DataRow[]; revision: number }
+export interface DataTable { id: string; name: string; fields: Field[]; rows: DataRow[]; revision: number; hiddenFields?: string[] }
 export interface Person { id: string; name: string; roles: string[]; organizationId?: string; fields: Record<string, string> }
 export interface Organization { id: string; name: string; kind: '组织单位' | '参赛队伍' | '演出团队' | '工作小组' | '部门' | '志愿者团队' }
 export interface FlowNode { id: string; start: string; end: string; title: string; owner: string; people: string[]; venue: string; equipment: string; status: string; note: string }

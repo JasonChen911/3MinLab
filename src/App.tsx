@@ -1,3 +1,4 @@
+import {loadPreferences} from './settings/preferences';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Clock3, FileText, History, Menu, X, Settings, Sparkles, Trash2 } from 'lucide-react';
 import BriefPanel from './components/BriefPanel';
@@ -46,7 +47,7 @@ const EXAMPLES = [
 export default function App() {
   const [mobileMenu,setMobileMenu]=useState(false);
   const [saved, setSaved] = useState(loadLocalState);
-  const [screen, setScreen] = useState<'welcome' | 'home' | 'workspace' | 'projects'>(() => (window.location.hash.startsWith('#workspace') ? 'workspace' : window.location.hash === '#projects' ? 'projects' : ['#home','#presets'].includes(window.location.hash) ? 'home' : 'welcome'));
+  const [screen, setScreen] = useState<'welcome' | 'home' | 'workspace' | 'projects' | 'settings'>(() => (window.location.hash === '#settings' ? 'settings' : window.location.hash.startsWith('#workspace') ? 'workspace' : window.location.hash === '#projects' ? 'projects' : ['#home','#presets'].includes(window.location.hash) ? 'home' : 'welcome'));
   const [stage, setStage] = useState<'intake' | 'plan'>(() => (saved.data.recent ? 'plan' : 'intake'));
   const [idea, setIdea] = useState('');
   const [brief, setBrief] = useState<EventBrief | null>(saved.data.recent?.brief ?? null);
@@ -56,7 +57,6 @@ export default function App() {
   const [activeModule, setActiveModule] = useState<ModuleId>('basic');
   const [toast, setToast] = useState(saved.error ?? '');
   const [showHistory, setShowHistory] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
   const [apiKey, setApiKey] = useState(loadApiKey);
   const [generating, setGenerating] = useState(false);
   const [assistantRequest,setAssistantRequest]=useState<{id:string;text:string}|null>(null);
@@ -95,7 +95,7 @@ export default function App() {
 
   useEffect(() => {
     const syncScreen = () => {
-      setScreen(window.location.hash.startsWith('#workspace') ? 'workspace' : window.location.hash === '#projects' ? 'projects' : ['#home','#presets'].includes(window.location.hash) ? 'home' : 'welcome');
+      setScreen(window.location.hash === '#settings' ? 'settings' : window.location.hash.startsWith('#workspace') ? 'workspace' : window.location.hash === '#projects' ? 'projects' : ['#home','#presets'].includes(window.location.hash) ? 'home' : 'welcome');
       const id=window.location.hash.startsWith('#workspace/')?window.location.hash.split('/')[1]:'';
       if(id&&id!==projectId)void projectRepository.get(id).then(project=>{if(project)restoreProjectState(project);});
       if (window.location.hash === '#presets') { window.requestAnimationFrame(() => document.getElementById('presets')?.scrollIntoView({ block: 'start' })); }
@@ -135,7 +135,7 @@ export default function App() {
     window.setTimeout(() => setToast(''), 4200);
   }
 
-  function navigateTo(next: 'welcome' | 'home' | 'workspace' | 'projects') {
+  function navigateTo(next: 'welcome' | 'home' | 'workspace' | 'projects' | 'settings') {
     window.location.hash = next;
     setScreen(next);
     window.scrollTo(0, 0);
@@ -386,7 +386,7 @@ export default function App() {
       <div id="main-actions" className={`top-right ${mobileMenu?'mobile-open':''}`} onClick={()=>setMobileMenu(false)}>
         <button className="project-list-link" onClick={() => navigateTo('projects')}>我的活动</button>
         <span className="tag">GENERAL EVENT PLANNER</span>
-        <button className="settings-trigger" onClick={() => setShowSettings(true)}>
+        <button className="settings-trigger" onClick={() => navigateTo('settings')}>
           <Settings size={17}/> 设置{apiKey ? <span className="settings-dot" aria-label="已设置 API Key"/> : null}
         </button>
         <button className="record-trigger" onClick={() => setShowHistory(true)}>
@@ -397,6 +397,7 @@ export default function App() {
     </header>
 
     <main id="home" className={screen === 'home' || screen === 'welcome' ? 'home-page' : 'workspace-page'}>
+      {screen === 'settings' && <SettingsPanel onClose={() => navigateTo(projectId?'workspace':'home')} onKeyChange={setApiKey}/>}
       {screen === 'projects' && <ProjectList onCreate={() => navigateTo('home')} onOpen={openProject} onRemoved={id=>{if(id===projectId){setProjectId('');setBrief(null);setPlan(null);}setSaved(loadLocalState());}}/>}
       {screen === 'welcome' && <WelcomeGate onEnter={() => navigateTo('home')} onProjects={() => navigateTo('projects')}/>}
 
@@ -531,7 +532,6 @@ export default function App() {
       onDelete={deleteSavedPlan}
       onClose={() => setShowHistory(false)}
     />}
-    {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} onKeyChange={setApiKey}/>}
-    {toast && <div className="toast" role="status">{toast}</div>}
+    {toast && (loadPreferences().reminders||/失败|错误|异常/.test(toast)) && <div className="toast" role="status">{toast}</div>}
   </div>;
 }

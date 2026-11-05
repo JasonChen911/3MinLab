@@ -1,10 +1,14 @@
 import type { EventPlan } from '../types';
+import {emergencyFields,reviewReport} from '../lifecycle/records';
 import { buildPlanMarkdown } from '../rules/export';
 import { rankProject, teamStandings } from './athletics';
 import { DEFAULT_SPORTS_RULES, fixtures, judgeRanking, orderedAgenda, sportsStandings, type Criterion, type JudgeScore, type Match, type SportsRules } from './calculations';
 import { getTool } from './registry';
 import { uid, type ActivityDocument, type DataRow, type ToolDefinition, type Workspace } from './model';
 export function getDefinition(id:string,workspace:Workspace):ToolDefinition|undefined {
+  if(id.startsWith('case-ref-'))return {id,name:workspace.documents.find(d=>d.toolId===id)?.name??'历史案例参考',scene:'custom',kind:'text',description:'组织者确认的历史记录副本',category:'总结与反馈文件'};
+  const lifecycleNames:Record<string,string>={'emergency':'应急预案','actual-review':'活动复盘报告','ai-lifecycle-notes':'AI 分析建议（待核实）'};
+  if(lifecycleNames[id])return {id,name:lifecycleNames[id],scene:'custom',kind:'text',description:'关联当前活动记录',category:'总结与反馈文件'};
   const template=workspace.customTemplates.find(item=>item.id===id);
   return getTool(id)??(template?{id:template.id,name:template.name,scene:'custom',kind:template.kind,description:'自定义活动工具',category:'活动专属文件',fields:template.fields,body:template.text}:undefined);
 }
@@ -27,7 +31,7 @@ export function scoringData(workspace:Workspace) {
 }
 export function documentSource(workspace:Workspace,plan:EventPlan,toolId:string) {
   const tool=getDefinition(toolId,workspace);
-  const dependencies=tool?.kind==='athletics'||toolId==='ath-rules'?workspace.athletics
+  const dependencies=['actual-review','ai-lifecycle-notes'].includes(toolId)?workspace.tables:tool?.kind==='athletics'||toolId==='ath-rules'?workspace.athletics
     :tool?.kind==='sports'?Object.entries(workspace.tables).filter(([id])=>id.startsWith('sports-'))
     :tool?.kind==='scoring'?Object.entries(workspace.tables).filter(([id])=>id.startsWith('judge-')||id==='contest-projects')
     :tool?.scene==='performance'?[workspace.tables.performances,workspace.tables['performances-settings'],workspace.tables[toolId]]
@@ -46,6 +50,10 @@ export function contextVariables(workspace:Workspace,plan:EventPlan) {
 }
 export function fillTemplate(text:string,variables:Record<string,string>) {return text.replace(/\{\{([^{}]+)\}\}/g,(match,key:string)=>variables[key.trim()]??match);}
 export function documentContent(workspace:Workspace,plan:EventPlan,toolId:string):Pick<ActivityDocument,'type'|'text'|'headers'|'rows'> {
+  if(toolId.startsWith('case-ref-'))return {type:'text',headers:[],rows:[],text:workspace.documents.find(d=>d.toolId===toolId)?.text??'历史记录缺失，请重新引用'};
+  if(toolId==='emergency')return {type:'text',headers:[],rows:[],text:(workspace.tables.emergency?.rows??[]).map(r=>emergencyFields.map(f=>`${f.label}：${r[f.key]||'待确认'}`).join('\n')).join('\n\n')+'\n\n消防、医疗和疏散措施须专业审核。'};
+  if(toolId==='actual-review')return {type:'text',headers:[],rows:[],text:reviewReport(plan,workspace)};
+  if(toolId==='ai-lifecycle-notes')return {type:'text',headers:[],rows:[],text:workspace.documents.find(d=>d.toolId===toolId)?.text??'需重新请求 AI 并确认建议'};
   if(toolId==='plan')return {type:'text',text:buildPlanMarkdown(plan),headers:[],rows:[]};
   const tool=getDefinition(toolId,workspace); const data=workspace.athletics;
   const table=(headers:string[],rows:string[][])=>({type:'table' as const,text:'',headers,rows});
@@ -84,7 +92,7 @@ export function syncDocuments(workspace:Workspace,plan:EventPlan):Workspace {
 }
 export function updateTable(workspace:Workspace,id:string,rows:DataRow[],name?:string):Workspace {
   const tool=getDefinition(id,workspace);const previous=workspace.tables[id];
-  return {...workspace,tables:{...workspace.tables,[id]:{id,name:name??previous?.name??tool?.name??id,fields:previous?.fields??tool?.fields??[],rows,revision:(previous?.revision??0)+1}}};
+  return {...workspace,tables:{...workspace.tables,[id]:{...previous,id,name:name??previous?.name??tool?.name??id,fields:previous?.fields??tool?.fields??[],rows,revision:(previous?.revision??0)+1}}};
 }
 export async function exportDocument(doc:ActivityDocument,format:string,activityTitle:string) {
   const response=await fetch('/api/files/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({format,title:doc.name,activityTitle,text:doc.text,headers:doc.headers,rows:doc.rows})});

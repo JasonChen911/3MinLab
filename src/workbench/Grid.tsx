@@ -1,3 +1,4 @@
+import {useDecision} from '../components/useDecision';
 import { useRef, useState } from 'react';
 import { uid, type DataRow, type Field } from './model';
 export function parseDelimited(text: string): string[][] {
@@ -15,6 +16,7 @@ export function parseDelimited(text: string): string[][] {
   row.push(cell);if(row.some(v=>v.trim()))rows.push(row);return rows;
 }
 export default function Grid({ fields, rows, onChange, onFields, name='数据表', importable=false }: {fields:Field[];rows:DataRow[];onChange:(rows:DataRow[])=>void;onFields?:(fields:Field[])=>void;name?:string;importable?:boolean}) {
+  const {ask,dialog}=useDecision();
   const [query,setQuery]=useState(''); const [error,setError]=useState(''); const input=useRef<HTMLInputElement>(null);
   const update=(id:string,key:string,value:string)=>onChange(rows.map(row=>row.id===id?{...row,[key]:value}:row));
   async function importFile(file: File) {
@@ -33,15 +35,16 @@ export default function Grid({ fields, rows, onChange, onFields, name='数据表
   }
   return <div className="wb-grid">
     <div className="wb-grid-actions"><input aria-label={`查询${name}`} placeholder="搜索当前表格…" value={query} onChange={event=>setQuery(event.target.value)}/>
-      <button type="button" onClick={()=>onChange([...rows,{id:uid(),...Object.fromEntries(fields.map(field=>[field.key,'']))}])}>＋ 添加一行</button>
-      {importable&&<><button type="button" onClick={()=>input.current?.click()}>导入 CSV / TSV / Excel</button><input ref={input} type="file" accept=".csv,.tsv,.xlsx" hidden onChange={event=>{const file=event.target.files?.[0];if(file)void importFile(file);event.target.value='';}}/></>}
-      {onFields&&<button type="button" onClick={()=>{const label=window.prompt('新字段名称');if(label?.trim())onFields([...fields,{key:uid(),label:label.trim()}]);}}>＋ 自定义字段</button>}
+      <button type="button" onClick={async()=>onChange([...rows,{id:uid(),...Object.fromEntries(fields.map(field=>[field.key,'']))}])}>＋ 添加一行</button>
+      {importable&&<><button type="button" onClick={async()=>input.current?.click()}>导入 CSV / TSV / Excel</button><input ref={input} type="file" accept=".csv,.tsv,.xlsx" hidden onChange={event=>{const file=event.target.files?.[0];if(file)void importFile(file);event.target.value='';}}/></>}
+      {onFields&&<button type="button" onClick={async()=>{const label=await ask('新字段名称',true);if(typeof label==='string'&&label.trim())onFields([...fields,{key:uid(),label:label.trim()}]);}}>＋ 自定义字段</button>}
       <span>{rows.length} 条记录</span>
     </div>
     {error&&<p role="status" className="wb-notice">{error}</p>}
     {onFields&&<p className="wb-help">点击列名可重命名；清空列名可移除该列。所有数据保存在本浏览器。</p>}
-    <div className="table-wrap"><table className="block-table"><thead><tr>{fields.map(field=><th key={field.key}>{onFields?<button type="button" className="text-button" onClick={()=>{const label=window.prompt('列名（留空删除该列）',field.label);if(label===null)return;if(!label.trim()&&!window.confirm('移除这列？此列内容将不再显示。'))return;onFields(label.trim()?fields.map(item=>item.key===field.key?{...item,label:label.trim()}:item):fields.filter(item=>item.key!==field.key));}}>{field.label}</button>:field.label}</th>)}<th>操作</th></tr></thead>
-    <tbody>{rows.filter(row=>!query||fields.some(field=>(row[field.key]??'').includes(query))).map(row=><tr key={row.id}>{fields.map(field=><td key={field.key}>{field.options?<select aria-label={`${name} ${field.label}`} value={row[field.key]??''} onChange={event=>update(row.id,field.key,event.target.value)}><option value="">请选择</option>{field.options.map(option=><option key={option}>{option}</option>)}</select>:<input className="cell-input" type={field.type??'text'} aria-label={`${name} ${field.label}`} value={row[field.key]??''} onChange={event=>update(row.id,field.key,event.target.value)}/>}</td>)}<td><button className="row-delete" type="button" aria-label={`删除${name}行`} onClick={()=>{if(window.confirm('删除这条记录？请确认已有备份或不再需要。'))onChange(rows.filter(item=>item.id!==row.id));}}>删除</button></td></tr>)}</tbody></table></div>
+    <div className="table-wrap"><table className="block-table"><thead><tr>{fields.map(field=><th key={field.key}>{onFields?<button type="button" className="text-button" onClick={async()=>{const label=await ask('列名（留空删除该列）',true,field.label,true);if(typeof label!=='string')return;if(!label.trim()&&!await ask('移除这列？此列内容将不再显示。'))return;onFields(label.trim()?fields.map(item=>item.key===field.key?{...item,label:label.trim()}:item):fields.filter(item=>item.key!==field.key));}}>{field.label}</button>:field.label}</th>)}<th>操作</th></tr></thead>
+    <tbody>{rows.filter(row=>!query||fields.some(field=>(row[field.key]??'').includes(query))).map(row=><tr key={row.id}>{fields.map(field=><td key={field.key}>{field.options?<select aria-label={`${name} ${field.label}`} value={row[field.key]??''} onChange={event=>update(row.id,field.key,event.target.value)}><option value="">请选择</option>{field.options.map(option=><option key={option}>{option}</option>)}</select>:<input className="cell-input" type={field.type??'text'} aria-label={`${name} ${field.label}`} value={row[field.key]??''} onChange={event=>update(row.id,field.key,event.target.value)}/>}</td>)}<td><button className="row-delete" type="button" aria-label={`删除${name}行`} onClick={async()=>{if(await ask('删除这条记录？请确认已有备份或不再需要。'))onChange(rows.filter(item=>item.id!==row.id));}}>删除</button></td></tr>)}</tbody></table></div>
     {!rows.length&&<div className="wb-empty">还没有记录。添加一行或导入自己的真实数据即可开始。</div>}
+    {dialog}
   </div>;
 }

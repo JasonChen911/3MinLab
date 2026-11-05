@@ -1,0 +1,70 @@
+import {loadPreferences} from '../settings/preferences';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { FlaskConical, Play, Pause, RotateCcw, Download, Save } from 'lucide-react';
+import type { EventPlan } from '../types';
+import type { Workspace } from '../workbench/model';
+import { uid } from '../workbench/model';
+import { projectRepository } from '../projects/repository';
+import { buildSnapshot, suggestedParameters, readiness, validateParameters, createSimulation, step, actions, intervene, recommendations, runToEnd, type Intervention } from './engine';
+import { fingerprint, type Parameters, type RunRecord, type SimulationState } from './model';
+import Sandbox from './Sandbox';
+import './simulation.css';
+
+const fields:{key:keyof Parameters;name:string;unit?:string;step?:number}[]=[
+ {key:'seed',name:'随机种子',step:1},{key:'staff',name:'总工作人员',step:1},{key:'checkinStaff',name:'签到人员',step:1},{key:'capacity',name:'场地同时容纳人数',step:1},{key:'spare',name:'备用设备套数',step:1},{key:'budget',name:'预算假设',unit:'元'},
+ {key:'attendance',name:'到场概率',unit:'0–1',step:.01},{key:'late',name:'迟到概率',unit:'0–1',step:.01},{key:'absence',name:'单名人员缺席概率',unit:'0–1',step:.01},{key:'arrivalSpread',name:'到场时间跨度',unit:'分钟'},
+ {key:'serviceRate',name:'单人签到服务率',unit:'人/分钟',step:.1},{key:'durationCV',name:'任务耗时变异系数',step:.01},{key:'repairMean',name:'平均恢复时间',unit:'分钟'},
+ {key:'equipmentRate',name:'设备故障基础强度',unit:'次/小时',step:.01},{key:'weatherRate',name:'天气变化强度（仅户外）',unit:'次/小时',step:.01},{key:'trafficRate',name:'交通波动强度',unit:'次/小时',step:.01},{key:'supplyRate',name:'物资短缺基础强度',unit:'次/小时',step:.01},{key:'priceRate',name:'调价事件强度',unit:'次/小时',step:.01},
+];
+function download(value:unknown,name:string) {const url=URL.createObjectURL(new Blob([JSON.stringify(value,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+export default function SimulationLab({plan,workspace,onApply,onSkip}:{plan:EventPlan;workspace:Workspace;onApply:(notes:string[],base:string)=>Promise<void>;onSkip:()=>void}) {
+ const source=useMemo(()=>buildSnapshot(plan,workspace),[plan,workspace]);
+ const [parameters,setParameters]=useState<Parameters>(()=>({...suggestedParameters(source),budget:plan.brief.budget,...(Number(workspace.tables['activity-settings']?.rows[0]?.capacity)>0?{capacity:Number(workspace.tables['activity-settings'].rows[0].capacity)}:{})}));
+ const [confirmed,setConfirmed]=useState(false),[state,setState]=useState<SimulationState|null>(null),[running,setRunning]=useState(false),[speed,setSpeed]=useState(()=>loadPreferences().speed),[notice,setNotice]=useState(''),[saved,setSaved]=useState<RunRecord[]>([]),[selected,setSelected]=useState<string[]>([]),[busy,setBusy]=useState(false),[comparison,setComparison]=useState<{label:string;p50:number;p90:number;queue:number;cost:number;unfinished:number}[]>([]);
+ const alive=useRef(true);useEffect(()=>{alive.current=true;void projectRepository.get(plan.id).then(p=>{if(alive.current)setSaved(p?.simulationRuns??[]);}).catch(e=>setNotice(e.message));return()=>{alive.current=false;};},[plan.id]);
+ useEffect(()=>{if(!running)return;const timer=setInterval(()=>setState(old=>old?step(old,speed):old),300);return()=>clearInterval(timer);},[running,speed]);
+ useEffect(()=>{if(state?.status==='finished')setRunning(false);},[state?.status]);
+ const currentFingerprint=fingerprint(plan,workspace),stale=!!state&&state.snapshot.fingerprint!==currentFingerprint;
+ const notes=state?recommendations(state):[];
+ function start() {try {if(!confirmed)throw new Error('请先确认全部测试假设');setState(createSimulation(source,parameters));setSelected([]);setComparison([]);setRunning(true);setNotice('新模拟已创建独立快照，正式数据保持原样。');}catch(e){setNotice((e as Error).message);}}
+ async function save() {if(!state)return;try {const run:RunRecord={id:uid(),savedAt:new Date().toISOString(),state:structuredClone(state)};const p=await projectRepository.update(plan.id,p=>{if(!p)throw new Error('请先保存活动');return {...p,simulationRuns:[run,...(p.simulationRuns??[])].slice(0,5)};});setSaved(p.simulationRuns??[]);setNotice('实验快照、种子、参数和过程已保存；最多保留5次，可下载长期留存。');}catch(e){setNotice((e as Error).message);}}
+ async function compare() {
+  const snapshot=state?.snapshot??source,p=state?.parameters??parameters;
+  if(!confirmed&&!state){setNotice('请先确认假设');return;}if(validateParameters(p).length){setNotice(validateParameters(p).join('；'));return;}
+  setRunning(false);setBusy(true);setComparison([]);
+  try {const results=[];
+   for(const factor of [.5,1,2]) {const values:SimulationState[]=[];for(let i=0;i<20;i++){await new Promise<void>(resolve=>setTimeout(resolve,0));if(!alive.current)return;values.push(runToEnd(snapshot,{...p,seed:(p.seed+i)>>>0,equipmentRate:Math.min(10,p.equipmentRate*factor),weatherRate:Math.min(10,p.weatherRate*factor),trafficRate:Math.min(10,p.trafficRate*factor),supplyRate:Math.min(10,p.supplyRate*factor),priceRate:Math.min(10,p.priceRate*factor)}));}
+    const delays=values.map(s=>s.delay).sort((a,b)=>a-b);results.push({label:`事件强度 ×${factor}`,p50:delays[9],p90:delays[17],queue:Math.round(values.reduce((v,s)=>v+s.peakQueue,0)/20),cost:Math.round(values.reduce((v,s)=>v+s.extraSpend,0)/20),unfinished:values.filter(s=>s.timeout).length});if(alive.current)setComparison([...results]);
+   }setNotice('敏感性分析完成：每组20次，共用相同种子组、无人工干预。P90为样本经验分位数，小样本不是置信保证。');
+  }catch(e){setNotice((e as Error).message);}finally{if(alive.current)setBusy(false);}
+ }
+ return <section className="sim-lab" aria-label="活动仿真实验室">
+  <header className="wb-section-heading"><div><span className="mini-label">ACTIVITY SIMULATION LAB</span><h2><FlaskConical size={23}/> 活动仿真实验室</h2><p>先在虚拟环境中测试，再由组织者决定如何完善方案。</p></div><button type="button" onClick={onSkip}>暂不模拟，继续策划</button></header>
+  <p className="wb-notice">当前模拟使用假设概率模型，结果仅供方案压力测试，不代表实际事件发生概率。模拟费用不计入真实经费，所有模型参数均可核对。</p>
+  {notice&&<p role="status" className="sim-status">{notice}</p>}
+  {!state?<section className="wb-card"><h3>01 / 模拟准备与假设确认</h3><p>读取：{source.title} · {source.people} 人 · {source.duration} 分钟 · {source.tasks.length} 个任务</p>
+   <ul>{readiness(source).map(x=><li key={x}>{x}</li>)}{source.assumptions.map(x=><li key={x}>{x}</li>)}</ul>
+   <p className="wb-help">人员来自方案岗位表，流程优先读取执行流程，空缺时读取策划时间轴；资源使用策划资源清单。未细分的任务执行编制、设备需求与场地冲突采用下表假设。</p>
+   <details><summary>检查任务依赖与资源</summary><div className="sim-table"><table><thead><tr><th>任务</th><th>开始/时长（分钟）</th><th>执行人员</th><th>设备 / 场地</th><th>前置任务</th></tr></thead><tbody>{source.tasks.map(t=><tr key={t.id}><td>{t.name}</td><td>{t.start} / {t.duration}</td><td>{t.staff}</td><td>{t.equipment?source.equipmentName:'无设备依赖'} / {t.venue}</td><td>{t.dependencies.map(id=>source.tasks.find(t=>t.id===id)?.name).join('、')||'无'}</td></tr>)}</tbody></table></div><p>资源：{source.resources.join('、')||'通用主活动设备（假设）'}；岗位：{source.roles.map(r=>`${r.name}${r.count}人`).join('、')||'编制使用下方假设'}</p></details>
+   <div className="sim-fields">{fields.map(f=><label key={f.key}>{f.name} {f.unit&&<small>({f.unit})</small>}<input aria-label={f.name} type="number" step={f.step??1} value={parameters[f.key] as number} onChange={e=>{setConfirmed(false);setParameters({...parameters,[f.key]:Number(e.target.value)});}}/></label>)}</div>
+   <div className="sim-fields"><label>概率来源<select value={parameters.source} onChange={e=>{setConfirmed(false);setParameters({...parameters,source:e.target.value as Parameters['source']});}}>{['系统演示假设','用户提供数据','专家估计','历史数据'].map(x=><option key={x}>{x}</option>)}</select></label><label>数据依据（样本、来源、日期；不上传私人名单）<input value={parameters.sourceNote} onChange={e=>{setConfirmed(false);setParameters({...parameters,sourceNote:e.target.value});}}/></label></div>
+   <label className="sim-confirm"><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/> 我已核对人员、设备、容量、预算及上述假设，同意将其用于压力测试。</label>
+   <button className="primary" type="button" disabled={!confirmed||!source.tasks.length||busy} onClick={start}><Play size={16}/> 开始活动模拟</button>
+  </section>:<>
+   {stale&&<p className="wb-notice">正式方案已发生变化。当前模拟继续使用旧快照；请重新建模后再应用建议。</p>}
+   <div className="sim-controls"><button type="button" disabled={state.status==='finished'||busy} onClick={()=>setRunning(!running)}>{running?<Pause size={16}/>:<Play size={16}/>} {running?'暂停':'继续'}</button><button type="button" disabled={running||state.status==='finished'||busy} onClick={()=>setState(step(state,1))}>单步 +1分钟</button><label>播放速度 <select aria-label="模拟播放速度" value={speed} onChange={e=>setSpeed(Number(e.target.value))}>{[1,5,15].map(n=><option key={n} value={n}>{n} 分钟 / 帧</option>)}</select></label><button type="button" disabled={busy} onClick={()=>{setRunning(false);setState(null);setConfirmed(false);}}><RotateCcw size={15}/> 重新设置</button><button type="button" onClick={()=>void save()}><Save size={15}/> 保存实验</button><button type="button" onClick={()=>download(state,`simulation-${parameters.seed}.json`)}><Download size={15}/> 下载过程</button></div>
+   <div className="sim-metrics">{[['模拟时间',`${state.minute} 分`],['到场 / 计划',`${state.arrived} / ${state.snapshot.people}`],['已签到 / 排队',`${state.served} / ${state.queue}`],['人员使用 / 可用',`${state.assignedStaff} / ${state.availableStaff}`],['预计延误',`${state.delay} 分`],['模型消耗 / 额外',`¥${state.baseSpend+state.extraSpend} / ¥${state.extraSpend}`]].map(([label,value])=><div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
+   <Sandbox state={state}/>
+   <div className="sim-columns"><section className="wb-card"><h3>现场决策</h3><p className="wb-help">有限预备资源；调用会产生费用。设备恢复、人员和容量变化立即影响后续计算。</p>{(Object.entries(actions) as [Intervention,{name:string;cost:number}][]).map(([kind,a])=><button key={kind} type="button" disabled={state.status==='finished'||busy} onClick={()=>{try{setState(intervene(state,kind));setNotice(`${a.name}已执行，仅影响模拟。`);}catch(e){setNotice((e as Error).message);}}}>{a.name} · ¥{a.cost}</button>)}{state.actions.map((a,i)=><p key={i} className="wb-help">T+{a.at}：{a.name}，¥{a.cost}</p>)}</section>
+   <section className="wb-card"><h3>风险事件与因果影响</h3><div className="sim-log" aria-live="off">{state.incidents.length?[...state.incidents].reverse().map(e=><p key={e.id}><strong>T+{e.at} · {e.message}</strong><br/>{e.kind==='absence'?'编制减少':`影响至 T+${e.until}，额外费用 ¥${e.cost}`}；{e.kind==='equipment'?'依赖设备的环节停止消耗剩余时长':e.kind==='weather'?'场地关闭，现场任务暂停、签到效率下降':e.kind==='traffic'?'重排尚未到场人员的到达时刻':e.kind==='supply'?'签到服务率降至40%，队列累积':e.kind==='price'?'额外支出累计':'执行资源减少，后续任务可能等待'}</p>):<p>当前没有随机突发事件；整场无事件也是有效结果。</p>}</div></section></div>
+   <section className="wb-card"><h3>任务运行表 · {state.tasks.filter(t=>t.status==='已完成').length}/{state.tasks.length}</h3><div className="sim-table"><table><thead><tr><th>任务</th><th>状态</th><th>计划开始</th><th>实际开始 / 结束</th><th>剩余</th></tr></thead><tbody>{state.tasks.map(t=><tr key={t.id}><td>{t.name}</td><td>{t.status}</td><td>T+{t.start}</td><td>{t.actualStart??'—'} / {t.actualEnd??'—'}</td><td>{t.status==='已完成'?0:t.remaining} 分</td></tr>)}</tbody></table></div></section>
+   {state.status==='finished'&&<section className="wb-card"><h3>实验复盘 · {state.timeout?'达到时间上限，存在未完成任务':'活动模拟结束'}</h3><p>峰值排队 {state.peakQueue} 人；签到人均等待约 {(state.queuePersonMinutes/Math.max(1,state.served)).toFixed(1)} 分钟（离散积分估计）；额外开销 ¥{state.extraSpend}；{state.incidents.length} 次事件。</p>{state.timeout&&<p>未完成时等待均值不包含尚未服务人员的最终等待，仅供排查。</p>}
+    {notes.length?notes.map(note=><label className="sim-confirm" key={note}><input type="checkbox" checked={selected.includes(note)} onChange={e=>setSelected(e.target.checked?[...selected,note]:selected.filter(n=>n!==note))}/>{note}</label>):<p>本次没有触发额外建议，不代表实际活动没有风险。可换种子或进行敏感性分析。</p>}
+    <p className="wb-help">确认后仅把所选措施追加至正式方案的风险与应急章节，并记录可撤销版本；不会将模拟费用、人员或成绩写为真实数据。</p>
+    <button type="button" className="primary" disabled={!selected.length||stale||busy} onClick={async()=>{setBusy(true);try{await onApply(selected,state.snapshot.fingerprint);setSelected([]);setNotice('所选措施已追加到正式方案，已保留版本，可在策划助手历史中撤销。');}catch(e){setNotice((e as Error).message);}finally{setBusy(false);}}}>确认将 {selected.length} 项措施加入正式方案</button>
+   </section>}
+  </>}
+  <section className="wb-card"><h3>敏感性分析</h3><p>分别将五类事件强度乘以 0.5 / 1 / 2；到场、迟到、缺席和耗时参数保持原值。每组使用同一组 20 个种子，比较概率假设对结果的影响。</p><button type="button" disabled={busy||!source.tasks.length} onClick={()=>void compare()}>{busy?'正在计算…':'比较三组概率假设（60次）'}</button>{comparison.length>0&&<div className="sim-table"><table><thead><tr><th>情境</th><th>延误 P50 / P90</th><th>平均峰值排队</th><th>平均额外费用</th><th>未完成次数</th></tr></thead><tbody>{comparison.map(r=><tr key={r.label}><td>{r.label}</td><td>{r.p50} / {r.p90} 分</td><td>{r.queue}</td><td>¥{r.cost}</td><td>{r.unfinished}/20</td></tr>)}</tbody></table></div>}</section>
+  <details className="wb-card"><summary>模型说明与已保存实验（{saved.length}）</summary><p>固定1分钟时间步的随机过程仿真。到场/迟到/缺席使用伯努利抽样；正常到场时刻为下界截断正态，迟到与任务耗时/恢复时间为对数正态；服务完成与风险到达按泊松增量。风险强度叠加场景权重（如演出设备×1.5、公益物资×1.6）并随排队负荷上升，仅在场景/任务适用且同类风险不活动时抽样。场地互斥、前置任务与人员编制控制任务启动；首日结束后最多追加1440分钟，超时如实标记未完成。任务耗时、设备判断和费用计提均为可检查的简化假设，未校准为真实预测。模型按场景区分设备依赖、物资依赖和停留时间；公益/社区物资短缺会暂停依赖物资的任务。无 AI 参与概率计算。</p>{saved.map(run=><div className="sim-controls" key={run.id}><span>{new Date(run.savedAt).toLocaleString()} · 种子 {run.state.parameters.seed} · T+{run.state.minute}</span><button type="button" onClick={()=>{setState(structuredClone(run.state));setParameters(run.state.parameters);setSelected([]);setRunning(false);setNotice('已恢复独立实验快照；点击继续可恢复随机序列。');}}>恢复实验</button><button type="button" onClick={()=>download(run,`simulation-${run.id}.json`)}>下载</button></div>)}</details>
+ </section>;
+}

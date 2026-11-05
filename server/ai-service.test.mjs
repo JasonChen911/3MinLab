@@ -1,0 +1,8 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {configureAI,aiStatus,providerFetch} from './ai-service.mjs';
+const setup=()=>configureAI({provider:'测试兼容接口',baseUrl:'https://example.com/v1',model:'test-model',temperature:.2,maxTokens:1000,key:'test-only-secret'},false);
+test('统一配置覆盖旧模块的 URL、模型和授权，状态不回显密钥',async()=>{setup();let captured;await providerFetch('https://old.example.com',{body:JSON.stringify({model:'old',messages:[{role:'user',content:'hello'}]})},async(url,options)=>{captured={url,...options};return new Response('{}');});assert.equal(captured.url,'https://example.com/v1/chat/completions');assert.equal(JSON.parse(captured.body).model,'test-model');assert.equal(captured.headers.Authorization,'Bearer test-only-secret');assert.ok(!JSON.stringify(aiStatus()).includes('test-only-secret'));});
+test('格式与不安全 URL 拒绝',()=>{setup();assert.throws(()=>configureAI({baseUrl:'http://example.com',model:'test',temperature:.2,maxTokens:1000},false),/HTTPS/);assert.throws(()=>configureAI({baseUrl:'https://user:pass@example.com',model:'test',temperature:.2,maxTokens:1000},false),/密码/);});
+test('错误不透传供应商响应或密钥，暂时故障有界重试',async()=>{setup();await assert.rejects(()=>providerFetch('',{body:'{}'},async()=>new Response('secret provider message',{status:401})),/Key 无效/);assert.ok(!JSON.stringify(aiStatus()).includes('secret provider message'));let calls=0;await providerFetch('',{body:'{}'},async()=>{calls++;return new Response('{}',{status:calls===1?503:200});});assert.equal(calls,2);});
+test('清除后禁用请求，未配置状态明确',async()=>{setup();configureAI({...aiStatus(),clearKey:true},false);assert.equal(aiStatus().configured,false);await assert.rejects(()=>providerFetch('',{body:'{}'}),/尚未配置/);});

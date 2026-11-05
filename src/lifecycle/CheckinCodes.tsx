@@ -1,0 +1,10 @@
+import {useDecision} from '../components/useDecision';
+import {useState} from 'react';
+import {uid,type DataRow} from '../workbench/model';
+export default function CheckinCodes({activityId,rows,onChange}:{activityId:string;rows:DataRow[];onChange:(rows:DataRow[])=>Promise<boolean>}){
+ const {ask,dialog}=useDecision();
+ const [image,setImage]=useState(''),[caption,setCaption]=useState(''),[scan,setScan]=useState(''),[message,setMessage]=useState('');
+ async function show(row:DataRow){try{const token=row.checkinToken||uid();if(!row.checkinToken&&!await onChange(rows.map(r=>r.id===row.id?{...r,checkinToken:token}:r)))return;const {toDataURL}=await import('qrcode');const code=JSON.stringify({app:'3MinLab',activityId,token});setImage(await toDataURL(code,{width:256,margin:4,errorCorrectionLevel:'M'}));setCaption(row.name||'参与者');setMessage('二维码仅含随机标识，不含姓名或联系方式。请妥善分发。');}catch(e){setMessage('二维码生成失败，请刷新页面后重试。已保存的签到记录不受影响。');}}
+ async function check(){try{const value=JSON.parse(scan);if(value.app!=='3MinLab'||value.activityId!==activityId)throw new Error('二维码不属于当前活动');const row=rows.find(r=>r.checkinToken&&r.checkinToken===value.token);if(!row)throw new Error('找不到此签到标识');if(row.checkin==='已签到')throw new Error('此人已签到，请勿重复登记');if(!await ask(`核对 ${row.name||'该参与者'} 身份并确认到场？`))return;if(await onChange(rows.map(r=>r.id===row.id?{...r,checkin:'已签到',checkedAt:new Date().toISOString()}:r))){setScan('');setMessage('签到成功');}}catch(e){setMessage((e as Error).message);}}
+ return <details><summary>签到二维码与扫码枪登记</summary><p>生成个人二维码；在保存名单的这台设备上，用扫码枪或粘贴识别内容登记。尚未提供公众手机自助签到或远程同步。</p>{rows.map(r=><button key={r.id} onClick={()=>show(r)}>{r.name||'未命名'} · 生成签到码</button>)}{image&&<figure><img src={image} width="256" height="256" alt={`${caption} 的本地签到二维码`}/><figcaption>{caption} <a href={image} download="checkin.png">下载二维码</a></figcaption></figure>}<label>扫描或粘贴二维码内容<input value={scan} onChange={e=>setScan(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')void check();}}/></label><button disabled={!scan.trim()} onClick={check}>核对并签到</button>{message&&<p role="status">{message}</p>}{dialog}</details>;
+}

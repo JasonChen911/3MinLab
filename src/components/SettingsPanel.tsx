@@ -1,39 +1,22 @@
-import { useEffect, useRef, useState } from 'react';
-import { Eye, EyeOff, KeyRound, X } from 'lucide-react';
-import { clearApiKey, loadApiKey, saveApiKey } from '../services/apiKey';
-
-export default function SettingsPanel({ onClose, onKeyChange }: { onClose: () => void; onKeyChange: (key: string) => void }) {
-  const [key, setKey] = useState(loadApiKey);
-  const [visible, setVisible] = useState(false);
-  const [message, setMessage] = useState('');
-  const closeRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    closeRef.current?.focus();
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [onClose]);
-
-  function save() {
-    if (!saveApiKey(key)) { setMessage('请输入有效的 API Key。'); return; }
-    const saved = loadApiKey();
-    setKey(saved); onKeyChange(saved); setMessage('API Key 已保存在当前浏览器。');
-  }
-  function clear() {
-    if (!clearApiKey()) { setMessage('清除失败，请检查浏览器存储权限。'); return; }
-    setKey(''); onKeyChange(''); setMessage('API Key 已清除。');
-  }
-
-  return <div className="settings-backdrop" onClick={onClose}>
-    <section className="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title" onClick={event => event.stopPropagation()}>
-      <div className="settings-heading"><span className="settings-icon"><KeyRound size={21}/></span><button ref={closeRef} className="icon-button" onClick={onClose} aria-label="关闭设置"><X size={20}/></button></div>
-      <span className="mini-label">PERSONAL SETTINGS</span><h2 id="settings-title">设置 DeepSeek API Key</h2>
-      <p>填入你自己的 Key，就能在“让 AI 帮我多问几个问题”或“让 AI 帮我完善”中获取活动建议。无需修改项目文件。</p>
-      <label htmlFor="deepseek-key">API Key</label>
-      <div className="key-field"><input id="deepseek-key" type={visible ? 'text' : 'password'} autoComplete="off" spellCheck={false} value={key} onChange={event => { setKey(event.target.value); setMessage(''); }} placeholder="sk-..."/><button onClick={() => setVisible(value => !value)} aria-label={visible ? '隐藏 API Key' : '显示 API Key'}>{visible ? <EyeOff size={19}/> : <Eye size={19}/>}</button></div>
-      <p className="settings-note">Key 仅保存在当前浏览器的 localStorage。使用 AI 时会通过同源本机服务发送给 DeepSeek；请勿在共享电脑上保存。清除浏览器数据也会移除 Key。</p>
-      {message && <p className="settings-message" role="status">{message}</p>}
-      <div className="settings-actions"><button className="settings-clear" onClick={clear}>清除 Key</button><button className="primary" onClick={save}>保存设置</button></div>
-    </section>
-  </div>;
+import {useDecision} from './useDecision';
+import {useEffect,useState} from 'react';
+import {Palette,SlidersHorizontal,Shield,BrainCircuit,ArrowLeft} from 'lucide-react';
+import {defaults,loadPreferences,savePreferences,type Preferences} from '../settings/preferences';
+import {aiRequest} from '../services/AIService';
+type Config={provider:string;baseUrl:string;model:string;temperature:number;maxTokens:number;configured:boolean;lastTest?:{message:string};lastRequest?:{status:string;message?:string}};
+export default function SettingsPanel({onClose,onKeyChange}:{onClose:()=>void;onKeyChange:(key:string)=>void}){
+ const {ask,dialog}=useDecision();
+ const [page,setPage]=useState('appearance'),[prefs,setPrefs]=useState(loadPreferences),[config,setConfig]=useState<Config|null>(null),[key,setKey]=useState(''),[message,setMessage]=useState(''),[busy,setBusy]=useState(false);
+ useEffect(()=>{fetch('/api/ai/config').then(r=>{if(!r.ok)throw new Error('AI 配置服务未启动');return r.json();}).then(setConfig).catch(e=>setMessage(e.message));},[]);
+ function preference(patch:Partial<Preferences>){try{const next={...prefs,...patch};savePreferences(next);setPrefs(next);setMessage('显示偏好已保存');}catch{setMessage('存储空间不足，设置未保存');}}
+ async function configure(action:'save'|'test'|'reset'|'clear'){
+  if(!config)return;if(['reset','clear'].includes(action)&&!await ask('确认重置 AI 配置或清除服务端会话密钥？'))return;setBusy(true);setMessage('正在处理…');
+  try{const result=await aiRequest<Config>(action==='test'?'/api/ai/test':'/api/ai/config',action==='test'?{}:{...config,key,reset:action==='reset',clearKey:action==='clear'});setConfig(result);setKey('');onKeyChange('');window.dispatchEvent(new Event('ai-config-change'));setMessage(action==='test'?result.lastTest?.message||'测试完成':'配置已更新，所有 AI 功能同步使用');}catch(e){setMessage(e instanceof Error?e.message:'配置失败');}finally{setBusy(false);}
+ }
+ return <section className="settings-page"><header><button onClick={onClose}><ArrowLeft size={16}/> 返回</button><h1>设置</h1><p>让工作空间适合你。活动数据与原始设计保持独立。</p></header><div className="settings-layout"><nav aria-label="设置分类">{[['appearance','外观',Palette],['ai','AI 服务',BrainCircuit],['preferences','使用偏好',SlidersHorizontal],['privacy','数据与隐私',Shield]].map(([id,title,Icon])=>{const Glyph=Icon as typeof Palette;return <button key={String(id)} aria-current={page===id?'page':undefined} onClick={()=>{setPage(String(id));setMessage('');}}><Glyph size={18}/>{String(title)}</button>;})}</nav><div className="settings-content">
+ {page==='appearance'&&<><h2>外观</h2><p>默认保留米色纸张和绿色植物背景。</p><label>主题<select value={prefs.theme} onChange={e=>preference({theme:e.target.value})}>{[['green','自然绿（原始）'],['blue','清新蓝'],['beige','暖米色'],['dark','深色模式']].map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label><label>字体<select value={prefs.font} onChange={e=>preference({font:e.target.value})}>{[['small','小'],['normal','标准'],['large','大']].map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label><label>内置背景<select value={prefs.background} onChange={e=>preference({background:e.target.value})}><option value="original">原有纸张与植物</option><option value="paper">工作台纸张</option><option value="botanical">首页植物场景</option></select></label><label>柔和覆盖层 {prefs.overlay}%<input type="range" min="0" max="65" value={prefs.overlay} onChange={e=>preference({overlay:Number(e.target.value)})}/></label><button onClick={()=>preference(defaults)}>恢复默认外观与偏好</button></>}
+ {page==='ai'&&<><h2>统一 AI 服务</h2><p>策划、文档、调整、分析和复盘共用此配置。未配置不影响本地功能。</p>{config&&<><p className="settings-status">{config.configured?'已配置密钥':'尚未配置密钥'} · {config.model}</p><label>服务商<select value={config.provider} onChange={e=>setConfig({...config,provider:e.target.value})}>{['OpenAI-compatible','DeepSeek','OpenAI','自定义兼容服务'].map(v=><option key={v}>{v}</option>)}</select></label><label>Base URL<input value={config.baseUrl} onChange={e=>setConfig({...config,baseUrl:e.target.value})}/></label><label>默认模型<input value={config.model} onChange={e=>setConfig({...config,model:e.target.value})}/></label><label>临时 API Key（留空保留）<input type="password" autoComplete="new-password" value={key} onChange={e=>setKey(e.target.value)} placeholder={config.configured?'已配置，不回显密钥':'输入会话密钥'}/></label><p>密钥仅提交一次到本机后端内存，不保存在浏览器，不随业务请求发送；重启后失效。该次配置提交在本机开发者工具中仍可见。长期使用请在服务端环境变量 AI_API_KEY 中配置，勿上传仓库。</p><details><summary>高级参数</summary><label>温度<input type="number" min="0" max="2" step="0.1" value={config.temperature} onChange={e=>setConfig({...config,temperature:Number(e.target.value)})}/></label><label>最大输出长度<input type="number" min="128" max="32000" value={config.maxTokens} onChange={e=>setConfig({...config,maxTokens:Number(e.target.value)})}/></label><button disabled={busy} onClick={()=>configure('reset')}>恢复默认配置</button><button disabled={busy} onClick={()=>configure('clear')}>清除会话密钥</button></details><div className="settings-actions"><button disabled={busy||!config.configured} onClick={()=>configure('test')}>测试已保存配置</button><button className="primary" disabled={busy} onClick={()=>configure('save')}>{busy?'处理中…':'保存配置'}</button></div><p>最近测试：{config.lastTest?.message||'尚未测试'}<br/>最近请求：{config.lastRequest?.message||config.lastRequest?.status||'尚未请求'}</p></>}</>}
+ {page==='preferences'&&<><h2>使用偏好</h2>{([['hints','展开辅助提示'],['onboarding','显示策划引导'],['animation','启用模拟动画'],['reminders','显示操作提醒']] as const).map(([id,title])=><label className="settings-check" key={id}><input type="checkbox" checked={prefs[id]} onChange={e=>preference({[id]:e.target.checked})}/>{title}</label>)}<label>默认模拟速度<select value={prefs.speed} onChange={e=>preference({speed:Number(e.target.value)})}>{[1,5,15].map(v=><option key={v} value={v}>{v} 分钟 / 步</option>)}</select></label><p>删除、覆盖正式方案和重要调整始终保留确认。</p></>}
+ {page==='privacy'&&<><h2>数据与隐私</h2><p>活动与附件保存在此浏览器的 IndexedDB。清理浏览器数据或更换设备不会自动同步，请定期在活动内“备份活动资料”。</p><a href="#projects">管理与导出活动 →</a><h3>AI 数据使用</h3><p>仅在主动请求时发送相关上下文给所配置服务商；请避免包含不必要的个人信息。原始附件不会自动发送。</p><h3>现场数据</h3><p>现场记录由本机人工更新；尚无账户权限和跨设备同步服务。不将仿真数据当作实际记录。</p><button onClick={async()=>{if(await ask('仅恢复界面偏好？活动资料不会删除。'))preference(defaults);}}>恢复默认界面设置</button></>}
+ {message&&<p role="status" className="settings-status">{message}</p>}</div></div>{dialog}</section>;
 }

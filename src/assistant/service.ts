@@ -1,3 +1,4 @@
+import {aiRequest} from '../services/AIService';
 import type { EventBrief, EventPlan, ModuleId } from '../types';
 import { generatePlan } from '../rules/generator';
 import { applyPatch, reviseBrief } from '../rules/revise';
@@ -13,14 +14,9 @@ export interface ModelAdjustment {reply:string;patch:{people?:number;budget?:num
 export interface AIService {adjust(context:AssistantContext,text:string,history:{role:string;text:string}[],signal?:AbortSignal):Promise<ModelAdjustment>}
 export function buildAssistantContext(plan:EventPlan,workspace:Workspace):AssistantContext {const finance=expenseStats(workspace,plan.brief.budget);return {activity:{name:plan.title,category:plan.brief.categoryId,date:plan.brief.date,people:plan.brief.people,budget:plan.brief.budget,duration:plan.brief.durationMinutes,venue:plan.brief.venue,goal:plan.brief.goal},statistics:{registrations:workspace.tables.registrations?.rows.length??0,athletes:workspace.athletics.athletes.length,used:finance.used,remaining:finance.remaining,programmes:workspace.tables.performances?.rows.length??0},constraints:plan.brief.constraints.slice(0,500)};}
 export class ProxyAIService implements AIService {
-  constructor(private key=''){}
+  constructor(_key=''){}
   async adjust(context:AssistantContext,text:string,history:{role:string;text:string}[],signal?:AbortSignal):Promise<ModelAdjustment> {
-    let last:unknown;
-    for(let attempt=0;attempt<2;attempt++) {
-      try {const timeout=AbortSignal.timeout(30000);const combined=signal?AbortSignal.any([signal,timeout]):timeout;const response=await fetch('/api/assistant/adjust',{method:'POST',headers:{'Content-Type':'application/json',...(this.key?{'X-DeepSeek-API-Key':this.key}:{})},body:JSON.stringify({context,text:text.slice(0,500),history:history.slice(-6).map(message=>({role:message.role,text:message.text.slice(0,800)}))}),signal:combined});const data=await response.json().catch(()=>({}));if(!response.ok){if(attempt===0&&[502,503,504].includes(response.status)&&data.code!=='NOT_CONFIGURED')continue;throw new Error(data.error??'AI 请求失败');}return parseModelAdjustment(data);}
-      catch(error){last=error;if(signal?.aborted||attempt===1||!(error instanceof TypeError))throw error;}
-    }
-    throw last;
+    return parseModelAdjustment(await aiRequest('/api/assistant/adjust',{context,text:text.slice(0,500),history:history.slice(-6).map(message=>({role:message.role,text:message.text.slice(0,800)}))},signal));
   }
 }
 export function parseModelAdjustment(input:unknown):ModelAdjustment {

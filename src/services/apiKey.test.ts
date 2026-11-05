@@ -11,12 +11,13 @@ function memoryStorage() {
 }
 
 describe('DeepSeek key settings', () => {
-  it('saves and restores a trimmed key independently of plan data', () => {
+  it('removes legacy browser secrets and refuses new persistence', () => {
     const storage = memoryStorage();
-    expect(saveApiKey('  sk-example  ', storage)).toBe(true);
-    expect(loadApiKey(storage)).toBe('sk-example');
-    expect(clearApiKey(storage)).toBe(true);
+    storage.setItem('activity-lab-deepseek-key','old-private-secret');
     expect(loadApiKey(storage)).toBe('');
+    expect(storage.getItem('activity-lab-deepseek-key')).toBeNull();
+    expect(saveApiKey('sk-example',storage)).toBe(false);
+    expect(clearApiKey(storage)).toBe(true);
   });
 
   it('rejects empty and malformed keys', () => {

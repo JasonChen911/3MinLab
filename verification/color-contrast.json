@@ -1,0 +1,51 @@
+[
+  {
+    "label": "正文",
+    "foreground": "#334155",
+    "background": "#fffdf8",
+    "contrast": 10.19,
+    "AA": true
+  },
+  {
+    "label": "辅助说明",
+    "foreground": "#586573",
+    "background": "#fffdf8",
+    "contrast": 5.86,
+    "AA": true
+  },
+  {
+    "label": "当前阶段",
+    "foreground": "#245fba",
+    "background": "#eff6ff",
+    "contrast": 5.64,
+    "AA": true
+  },
+  {
+    "label": "AI说明",
+    "foreground": "#6940ae",
+    "background": "#f5f0ff",
+    "contrast": 6.38,
+    "AA": true
+  },
+  {
+    "label": "风险提醒",
+    "foreground": "#92520c",
+    "background": "#fff7e5",
+    "contrast": 5.73,
+    "AA": true
+  },
+  {
+    "label": "危险操作",
+    "foreground": "#b42318",
+    "background": "#fff1ef",
+    "contrast": 5.97,
+    "AA": true
+  },
+  {
+    "label": "完成状态",
+    "foreground": "#28553a",
+    "background": "#edf4ea",
+    "contrast": 7.64,
+    "AA": true
+  }
+]

@@ -1,3 +1,4 @@
+import {aiRequest} from '../services/AIService';
 import { useEffect, useState } from 'react';
 import { ArrowRight, Send, Sparkles } from 'lucide-react';
 import { MODULE_IDS } from '../data/taxonomy';
@@ -40,26 +41,20 @@ export async function requestRevisionPatch(text: string, brief: EventBrief, apiK
   }
 }
 
-async function callAssist(body: unknown, apiKey: string) {
-  const response = await fetch('/api/ai/assist', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(apiKey ? { 'X-DeepSeek-API-Key': apiKey } : {}) },
-    body: JSON.stringify(body),
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(typeof data?.error === 'string' ? data.error : 'AI 请求失败，请稍后再试');
-  return data as Record<string, unknown>;
+async function callAssist(body: unknown, _apiKey: string) {
+  return aiRequest('/api/ai/assist',body);
 }
 
 function useAiStatus() {
   const [available, setAvailable] = useState<boolean | null>(null);
   useEffect(() => {
     let active = true;
-    fetch('/api/ai/status')
+    const refresh=()=>fetch('/api/ai/status')
       .then((response) => response.json())
       .then((data) => { if (active) setAvailable(data?.available === true); })
       .catch(() => { if (active) setAvailable(false); });
-    return () => { active = false; };
+    refresh();window.addEventListener('ai-config-change',refresh);
+    return () => { active = false;window.removeEventListener('ai-config-change',refresh); };
   }, []);
   return available;
 }
