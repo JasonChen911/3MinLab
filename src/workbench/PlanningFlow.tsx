@@ -1,42 +1,42 @@
-import { useEffect, useState } from 'react';
-import { Check, Sparkles, ArrowRight } from 'lucide-react';
-import type { EventPlan } from '../types';
-import type { Workspace } from './model';
-import { modeOf } from '../planning/mode';
+import {useEffect,useState,type ReactNode} from 'react';
+import {ArrowRight,Check,ChevronDown,ChevronRight,Sparkles} from 'lucide-react';
+import type {EventPlan,ModuleId,PlanningStatus} from '../types';
+import type {Workspace} from './model';
+import {coreModules,moduleStatus,modeOf} from '../planning/mode';
+import {aiRequest} from '../services/AIService';
 import './planning.css';
-const stages = [
-  {title:'活动基本信息',hint:'目标、时间与主承办方',tab:'overview',tasks:['核实活动名称、主题与目标','确认日期、地点、人数和主承办单位']},
-  {title:'活动需求与资源',hint:'对象、预算与资源缺口',tab:'plan',tasks:['核实参与对象、预算与特殊要求','确认场地、物资和现有资源']},
-  {title:'活动方案设计',hint:'内容、环节与时间安排',tab:'plan',tasks:['核对活动内容、流程与互动设计','检查每个环节的时长与衔接']},
-  {title:'组织与执行安排',hint:'人员、任务与宣传报名',tab:'people',tasks:['确认岗位、志愿者与负责人','完善任务时间表、物资和宣传报名安排']},
-  {title:'风险评估与完善',hint:'预算、冲突与应急预案',tab:'plan',tasks:['复核风险预案、预算与资源缺口','检查时间冲突和现场执行可行性']},
-  {title:'生成最终策划方案',hint:'核对文件并导出交付',tab:'documents',tasks:['生成并核对策划书、执行手册和表格','确认最终内容后导出所需文件']},
-];
-const lightStages = [
-  {title:'活动与目标',hint:'想做什么、邀请谁',tab:'plan',tasks:['确认活动主题、目标和参与人数']},
-  {title:'时间与地点',hint:'何时集合、在哪举办',tab:'plan',tasks:['确认时间、地点及到达方式']},
-  {title:'人员与活动安排',hint:'环节、分组与联络',tab:'people',tasks:['核对环节顺序和参与者分组']},
-  {title:'物资与基础安全',hint:'准备清单和重要风险',tab:'plan',tasks:['核对物资、天气或场地安全要点']},
-  {title:'最后检查',hint:'确认后保存或导出',tab:'documents',tasks:['确认待定事项，保存可执行的活动安排']},
-];
-export default function PlanningFlow({plan,data,onChange,onOpen,onAssist}:{plan:EventPlan;data:Workspace;onChange:(data:Workspace)=>Promise<unknown>;onOpen:(tab:string)=>void;onAssist:(text:string)=>void}) {
-  const [current,setCurrent]=useState(0);
-  const [busy,setBusy]=useState(false);
-  const light=modeOf(plan)==='light',activeStages=light?lightStages:stages,reviewKey=(i:number)=>light?`light-${i}`:String(i);
-  useEffect(()=>setCurrent(0),[light]);
-  // A changed plan or execution dataset invalidates the corresponding review.
-  const fingerprints=light?[JSON.stringify([plan.brief.title,plan.brief.goal,plan.brief.people]),JSON.stringify([plan.brief.date,plan.brief.venue]),JSON.stringify([plan.modules.find(m=>m.id==='program'),data.people,data.flow]),JSON.stringify([plan.modules.find(m=>m.id==='resources'),plan.modules.find(m=>m.id==='risk')]),JSON.stringify([plan.moduleStates,data.documents])]:[JSON.stringify([plan.brief,data.profile]),JSON.stringify([plan.brief,data.tools]),JSON.stringify(plan.modules),JSON.stringify([data.people,data.organizations,data.tables,data.flow]),JSON.stringify([plan.modules,data.tables,data.athletics]),JSON.stringify([plan.modules,data.documents])];
-  const status=(i:number)=>{const review=data.planningReview?.[reviewKey(i)];return review?.fingerprint===fingerprints[i]?review.status:review?'stale':'todo';};
-  const done=activeStages.filter((_,i)=>status(i)==='done').length;
-  const skipped=activeStages.filter((_,i)=>status(i)==='skip').length;
-  const stage=activeStages[Math.min(current,activeStages.length-1)];
-  const special=light?'轻量安排也保留必要的场地、天气和参与者安全检查。':data.scene==='athletics'?'重点核对：竞赛规程、赛程、成绩登记与团体积分。':data.scene==='performance'?'重点核对：节目单、主持词、彩排安排与舞台调度。':'结合本次活动的重点模块核对；不适用的阶段可跳过。';
-  async function review(value:'done'|'skip'|null){setBusy(true);try {const next={...data.planningReview};const key=reviewKey(current);if(value)next[key]={status:value,fingerprint:fingerprints[current]};else delete next[key];await onChange({...data,planningReview:next});}finally{setBusy(false);}}
-  return <section className="planning-flow" aria-label="六阶段策划流程">
-    <div className="planning-heading"><div><span className="mini-label">PLANNING JOURNEY</span><h2>让每一步，都有方向</h2></div><strong role="status">{done}/{activeStages.length} 阶段已核对完成{skipped>0&&` · ${skipped} 项不适用`}</strong></div>
-    <progress aria-label="已核对完成阶段" max={activeStages.length} value={done}/>
-    <nav className="planning-steps" aria-label="策划阶段">{activeStages.map((item,i)=><button key={item.title} className={`${current===i?'current':''} ${status(i)}`} aria-current={current===i?'step':undefined} onClick={()=>setCurrent(i)}><span className="planning-number">{status(i)==='done'?<Check size={16}/>:i+1}</span><strong>{item.title}</strong><small>{status(i)==='done'?'已核对完成':status(i)==='skip'?'不适用':status(i)==='stale'?'内容已变更 · 待复核':current===i?'当前阶段':'待核对'} · {item.hint}</small></button>)}</nav>
-    <div className="planning-focus"><div><span className="planning-kicker">当前阶段 · {Math.min(current+1,activeStages.length)}/{activeStages.length}</span><h3>{stage.title}</h3><ul>{stage.tasks.map(task=><li key={task}>{task}</li>)}</ul><p>{special}</p></div><div className="planning-controls"><button className="primary" onClick={()=>onOpen(stage.tab)}>前往处理 <ArrowRight size={16}/></button><button onClick={()=>onAssist(`请帮我完善「${stage.title}」：${stage.tasks.join('；')}。${special}`)}><Sparkles size={16}/> 让 AI 帮我完善</button><div><button disabled={busy} onClick={()=>void review(status(current)==='done'?null:'done')}>{status(current)==='done'?'重新核对':'我已核对完成'}</button><button disabled={busy} onClick={()=>void review(status(current)==='skip'?null:'skip')}>{status(current)==='skip'?'恢复此阶段':'标记不适用'}</button></div></div></div>
-    <details><summary>进度如何计算 · 尚待核对 {activeStages.length-done-skipped} 个阶段</summary><p>完成状态由你核对后确认并随活动保存；内容变更会提示重新核对。生成方案不代表已完成审核。AI 入口打开现有助手，模型配置状态在助手中显示。</p></details>
-  </section>;
+import './v3.css';
+
+type StageId=ModuleId|'final';
+type Props={plan:EventPlan;data:Workspace;onChange:(data:Workspace,reason?:string)=>Promise<unknown>;onStageStatus:(id:ModuleId,status:PlanningStatus,note?:string)=>void;onAiConfirm:(id:ModuleId,text:string,items:string[])=>void;onSelectModule:(id:ModuleId)=>void;onCheckpoint:()=>Promise<unknown>;renderEditor:(id:ModuleId,block?:number)=>ReactNode;onOpen:(tab:string)=>void};
+const label=(kind:string)=>({text:'内容',bullets:'行动要点',checklist:'核对清单',timeline:'时间流程',budget:'预算',staff:'人员分工',table:'安排表',kpis:'验收指标'} as Record<string,string>)[kind]||'具体内容';
+export default function PlanningFlow({plan,data,onChange,onStageStatus,onAiConfirm,onSelectModule,onCheckpoint,renderEditor,onOpen}:Props){
+ const ids=coreModules(plan),[current,setCurrent]=useState<StageId>(ids[0]??'basic'),[expanded,setExpanded]=useState<string[]>([]),[block,setBlock]=useState<number|undefined>(),[mode,setMode]=useState<'choice'|'self'|'ai'|'skip'|'done'>('choice'),[draft,setDraft]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState(''),[safety,setSafety]=useState(false),[existing,setExisting]=useState(false),[existingNote,setExistingNote]=useState(''),[pendingReview,setPendingReview]=useState<{id:ModuleId;status:'done'|'skip'}|null>(null);
+ const stages=[...ids.map(id=>({id,title:plan.modules.find(m=>m.id===id)?.title??id})),{id:'final' as const,title:'最终检查与导出'}];
+ const module=current==='final'?undefined:plan.modules.find(m=>m.id===current);
+ const reviewKey=(id:StageId)=>'v3:'+id;
+ const signature=(id:StageId)=>id==='final'?JSON.stringify([plan.modules,data.profile,data.flow,data.documents]):JSON.stringify([plan.modules.find(m=>m.id===id),plan.brief, id==='organization'?data.people:undefined,id==='program'?data.flow:undefined,id==='budget'?data.tables.expenses:undefined]);
+ const status=(id:StageId)=>{const legacy=id==='final'?'unhandled':moduleStatus(plan,id);if(['self','pending','ai-suggested'].includes(legacy))return 'todo';const review=data.planningReview?.[reviewKey(id)];if(review)return review.fingerprint===signature(id)?review.status:'stale';return legacy==='confirmed'?'done':legacy==='not-needed'?'skip':'todo';};
+ const currentStatus=status(current),currentIndex=stages.findIndex(s=>s.id===current);
+ useEffect(()=>{if(!stages.some(s=>s.id===current))setCurrent(stages[0]?.id??'final');},[plan.id,plan.planningMode]);
+ useEffect(()=>{if(!pendingReview)return;const expected=pendingReview.status==='skip'?'not-needed':'confirmed';if(moduleStatus(plan,pendingReview.id)!==expected)return;const next={...data,planningReview:{...data.planningReview,[reviewKey(pendingReview.id)]:{status:pendingReview.status,fingerprint:signature(pendingReview.id)}}};setPendingReview(null);void onChange(next,'确认策划阶段');},[plan,pendingReview]);
+ function select(id:StageId,index?:number){setCurrent(id);setBlock(index);setMode('choice');setDraft('');setError('');setSafety(false);setExisting(false);setExistingNote('');if(id!=='final')onSelectModule(id);}
+ async function chooseSelf(){if(current==='final')return;try{if(currentStatus==='done'||currentStatus==='stale')await onCheckpoint();setExisting(moduleStatus(plan,current)==='existing'||!!plan.moduleStates?.[current]?.note?.startsWith('已落实：'));setExistingNote(plan.moduleStates?.[current]?.note?.replace(/^已落实：/,'')??'');onStageStatus(current,'self');setMode('self');}catch{setError('保存修改前版本失败，请重试。');}}
+ function chooseSkip(){if(current==='final')return;if(current==='risk'&&!safety){setError('请先确认最低限度的场地、人流和应急安全检查。');return;}onStageStatus(current,'not-needed',current==='risk'?'组织者确认已核查场地、人流及应急联系人；正式活动仍需专业安全复核。':'');setPendingReview({id:current,status:'skip'});setMode('skip');setError('');}
+ async function chooseAI(){if(!module||current==='final')return;setMode('ai');setDraft('');setError('');setBusy(true);try{const result=await aiRequest<{text:string}>('/api/ai/task',{task:'generateDocuments',context:{instruction:`仅为当前“${module.title}”阶段起草可执行安排。用简短条目，不编造已确认事实；未知信息标记待确认。`,activity:plan.title,category:plan.brief.categoryId,scale:modeOf(plan),brief:{people:plan.brief.people,budget:plan.brief.budget,venue:plan.brief.venueNote,goal:plan.brief.goal,requirements:plan.brief.constraints},current:{summary:module.summary,blocks:module.blocks.slice(0,5)},confirmed:ids.filter(id=>status(id)==='done').map(id=>({title:plan.modules.find(m=>m.id===id)?.title,summary:plan.modules.find(m=>m.id===id)?.summary})),resources:{people:data.people.length,flow:data.flow.length,documents:data.documents.slice(0,5).map(d=>({name:d.name,excerpt:d.text.slice(0,600)}))}}});if(typeof result.text!=='string'||!result.text.trim())throw Error('AI 未返回可用内容');setDraft(result.text.slice(0,3000));}catch(cause){setError(cause instanceof Error?cause.message:'AI 生成失败，原内容已保留');}finally{setBusy(false);}}
+ async function confirmAI(){if(!module||current==='final'||!draft.trim())return;try{await onCheckpoint();const items=draft.split(/\n/).map(s=>s.replace(/^\s*[-*\d.、]+\s*/,'').trim()).filter(Boolean).slice(0,12);onAiConfirm(current,draft.trim(),items);setPendingReview({id:current,status:'done'});setMode('done');}catch{setError('保存修改前版本失败，AI 建议尚未采用。');}}
+ function confirmSelf(){if(current==='final')return;onStageStatus(current,'confirmed',existing?`已落实：${existingNote.trim()||'组织者已核对现有资料'}`:'');setPendingReview({id:current,status:'done'});setMode('done');}
+ function next(){const item=stages[currentIndex+1];if(item)select(item.id);}
+ return <section className="v3-planner" aria-label="向导式活动策划">
+  <aside className="v3-rail"><div className="v3-rail-head"><strong>策划流程</strong><small>{stages.filter(s=>status(s.id)==='done').length}/{stages.length} 已确认 · {modeOf(plan)==='light'?'轻量':'完整'}模式</small></div><nav aria-label="策划阶段">{stages.map((stage,i)=>{const stepStatus=status(stage.id),active=current===stage.id,detail=stage.id==='final'?[]:plan.modules.find(m=>m.id===stage.id)?.blocks??[];return <div className="v3-stage" key={stage.id}><div className="v3-stage-row"><button className={`v3-stage-button ${active?'active':''}`} onClick={()=>select(stage.id)} aria-current={active?'step':undefined}><span className="v3-step-number">{stepStatus==='done'?<Check size={14}/>:i+1}</span><span>{stage.title}</span><small>{stepStatus==='done'?'完成':stepStatus==='skip'?'跳过':stepStatus==='stale'?'待复核':''}</small></button>{detail.length>0&&<button className="v3-expand" aria-label={`${expanded.includes(stage.id)?'收起':'展开'}${stage.title}子任务`} aria-expanded={expanded.includes(stage.id)} onClick={()=>setExpanded(v=>v.includes(stage.id)?v.filter(x=>x!==stage.id):[...v,stage.id])}>{expanded.includes(stage.id)?<ChevronDown size={15}/>:<ChevronRight size={15}/>}</button>}</div>{expanded.includes(stage.id)&&detail.length>0&&<div className="v3-subtasks">{detail.map((item,index)=><button key={index} onClick={()=>select(stage.id,index)}>{item.kind==='text'?item.text.slice(0,22):item.title||label(item.kind)}</button>)}</div>}</div>;})}</nav></aside>
+  <div className="v3-focus"><div className="v3-focus-head"><span>阶段 {currentIndex+1} / {stages.length}</span><h2>{stages[currentIndex]?.title}</h2><p>{currentStatus==='done'?'已确认，可返回修改。':currentStatus==='skip'?'已标记不需要，原有内容仍保留。':currentStatus==='stale'?'相关内容已变化，请复核此阶段。':module?.summary??'检查成果并选择需要的导出文件。'}</p></div>
+   {current==='final'?<div className="v3-final"><p>策划阶段已确认 {stages.filter(s=>s.id!=='final'&&status(s.id)==='done').length}/{stages.length-1} 项。导出前请核查时间、场地、负责人和安全安排。</p><button className="primary" onClick={()=>onOpen('documents')}>打开导出中心 <ArrowRight size={16}/></button><button onClick={()=>onOpen('people')}>查看工作组</button></div>:<>
+    {mode==='choice'&&<div className="v3-choices"><button onClick={()=>void chooseSelf()}><strong>自行填写</strong><small>查看现有内容并逐项修改</small></button><button onClick={()=>void chooseAI()}><Sparkles size={20}/><strong>AI 智能分析并自动填入</strong><small>先预览、修改，再确认采用</small></button><button onClick={chooseSkip}><strong>不需要</strong><small>保留数据，跳过本阶段</small></button>{current==='risk'&&<label className="v3-safety"><input type="checkbox" checked={safety} onChange={e=>setSafety(e.target.checked)}/> 已检查场地、人流及应急联系人；正式活动仍需安全复核</label>}</div>}
+    {mode==='self'&&<div className="v3-editor"><div className="v3-editor-top"><span>内容会随活动自动保存；请在核对后确认本阶段。</span><button onClick={()=>{setBlock(undefined);setMode('choice');}}>返回方式选择</button></div><div className="v3-existing"><label><input type="checkbox" checked={existing} onChange={e=>setExisting(e.target.checked)}/> 已有资料且已落实</label>{existing&&<input aria-label="已有资料说明" placeholder="简述已落实的安排或负责人" value={existingNote} onChange={e=>setExistingNote(e.target.value)}/>}</div>{renderEditor(current,block)}{current==='organization'&&<button className="v3-related-link" onClick={()=>onOpen('people')}>管理工作组与任务 <ArrowRight size={15}/></button>}<div className="v3-stage-actions"><button onClick={()=>setMode('choice')}>暂存，稍后继续</button><button className="primary" onClick={confirmSelf}>确认当前阶段</button></div></div>}
+    {mode==='ai'&&<div className="v3-ai"><h3>AI 生成内容 · 待确认</h3>{busy?<p role="status">正在分析当前阶段…</p>:draft?<><textarea aria-label="可修改的 AI 建议" value={draft} onChange={e=>setDraft(e.target.value)}/><div className="v3-stage-actions"><button onClick={()=>setMode('choice')}>放弃建议</button><button className="primary" onClick={()=>void confirmAI()}>确认并加入当前阶段</button></div></>:<button onClick={()=>void chooseAI()}>重试生成</button>}</div>}
+    {(mode==='done'||mode==='skip')&&<div className="v3-complete"><strong>{mode==='skip'?'已跳过此阶段':'此阶段已确认'}</strong><p>你可以返回修改；后续阶段的内容会保留，相关变化将标记待复核。</p><div className="v3-stage-actions"><button onClick={()=>setMode('choice')}>返回修改</button>{stages[currentIndex+1]&&<button className="primary" onClick={next}>进入下一阶段 <ArrowRight size={15}/></button>}</div></div>}
+    {error&&<p className="wb-notice error" role="alert">{error}</p>}
+   </>}
+  </div>
+ </section>;
 }

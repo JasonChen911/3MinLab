@@ -504,7 +504,7 @@ export default function App() {
           />
         </div>}
 
-        {stage === 'plan' && plan && <WorkspaceHub key={plan.id} plan={plan} apiKey={apiKey} assistantRequest={assistantRequest} onRestoreProject={openProject} onPlanChange={next=>{setPlan(next);setBrief(next.brief);persist(next,true);}}><PlanView
+        {stage === 'plan' && plan && <WorkspaceHub key={plan.id} plan={plan} apiKey={apiKey} assistantRequest={assistantRequest} onRestoreProject={openProject} onPlanChange={next=>{setPlan(next);setBrief(next.brief);persist(next,true);}} onStageStatus={changeModuleStatus} onSelectModule={setActiveModule} onCheckpoint={()=>projectRepository.update(plan.id,current=>({...current!,versions:[...current!.versions,{id:uid(),createdAt:new Date().toISOString(),reason:'重新编辑策划阶段',source:'user' as const,before:{plan:current!.plan,draft:current!.draft,workspace:current!.workspace},afterSummary:['保留阶段修改前版本'],afterFingerprint:JSON.stringify([current!.plan,current!.workspace]),documentChanges:[]}].slice(-20)}))} onStageAiConfirm={(moduleId,text,items)=>{const next=setModuleStatus({...plan,modules:plan.modules.map(module=>module.id===moduleId?{...module,aiNote:text,blocks:[...module.blocks,{kind:'bullets' as const,title:'AI 建议（组织者已确认）',items}]}:module)},moduleId,'confirmed');setPlan(next);persist(next,true);}}><PlanView
           plan={plan}
           active={activeModule}
           onActive={setActiveModule}

@@ -31,21 +31,25 @@ interface Props {
   onAiDecision?: (id:ModuleId,accept:boolean)=>void;
   revisionPanel?: ReactNode;
   aiPanel?: ReactNode;
+  guided?: boolean;
+  focusedModuleId?: ModuleId;
+  focusedBlockIndex?: number;
 }
 
 /** 方案工作台：左侧模块导航 + 右侧完整内容（打印时全部输出） */
-export default function PlanView({ plan, active, onActive, isFavorite, onFavorite, onCopy, onPrint, onCopyPromo, onDownload, onAdjust, onBudgetChange, onTableRows, onModuleMeta, onPlanMeta, onBlockTitle, onModeChange, onModuleStatus, onAiDecision, revisionPanel, aiPanel }: Props) {
+export default function PlanView({ plan, active, onActive, isFavorite, onFavorite, onCopy, onPrint, onCopyPromo, onDownload, onAdjust, onBudgetChange, onTableRows, onModuleMeta, onPlanMeta, onBlockTitle, onModeChange, onModuleStatus, onAiDecision, revisionPanel, aiPanel, guided=false, focusedModuleId, focusedBlockIndex }: Props) {
   const [editingPlan, setEditingPlan] = useState(false);
   const [editingModules,setEditingModules]=useState<ModuleId[]>([]);
   const [showOptional,setShowOptional]=useState(false);
   const core=useMemo(()=>new Set(coreModules(plan)),[plan]);
-  const visible=modeOf(plan)==='full'||showOptional?plan.modules:plan.modules.filter(module=>core.has(module.id));
+  const visible=focusedModuleId?plan.modules.filter(module=>module.id===focusedModuleId):modeOf(plan)==='full'||showOptional?plan.modules:plan.modules.filter(module=>core.has(module.id));
   const progress=planningProgress(plan);
   const activeRef = useRef(onActive);
   activeRef.current = onActive;
 
   // 用滚动位置定位当前模块：比 IntersectionObserver 更稳定，不会滞后一节
   useEffect(() => {
+    if(guided)return;
     const sections = visible
       .map((module) => document.getElementById(`module-${module.id}`))
       .filter((element): element is HTMLElement => !!element && !element.hidden);
@@ -69,7 +73,7 @@ export default function PlanView({ plan, active, onActive, isFavorite, onFavorit
       observer.disconnect();
       if (frame) window.cancelAnimationFrame(frame);
     };
-  }, [plan.id, plan.modules, plan.planningMode, showOptional]);
+  }, [plan.id, plan.modules, plan.planningMode, showOptional, guided, focusedModuleId]);
 
   function jump(id: ModuleId) {
     const details=document.querySelector<HTMLDetailsElement>(`#module-${id} > details`);if(details)details.open=true;
@@ -82,7 +86,8 @@ export default function PlanView({ plan, active, onActive, isFavorite, onFavorit
 
   const keyCount = visible.filter((module) => module.weight === 'key').length;
 
-  return <div className="plan-layout step-enter">
+  return <div className={`plan-layout step-enter ${guided?'guided-plan':''}`}>
+    {!guided&&<>
     <aside className="plan-rail" aria-label="方案模块导航">
       <div className="rail-head">
         <span className="mini-label">BLUEPRINT</span>
@@ -109,8 +114,10 @@ export default function PlanView({ plan, active, onActive, isFavorite, onFavorit
       {modeOf(plan)==='light'&&<button className="rail-adjust" onClick={()=>setShowOptional(v=>!v)}>{showOptional?'收起可选模块':'查看其他可选模块'}</button>}
       <button className="rail-adjust" onClick={onAdjust}><PenLine size={15}/> 调整需求</button>
     </aside>
+    </>}
 
     <div className="plan-body">
+      {!guided&&<>
       <section className="plan-hero">
         <span className="mini-label">YOUR EVENT BLUEPRINT</span>
         {editingPlan&&onPlanMeta?<><input className="module-title-input" aria-label="方案活动名称" value={plan.title} onChange={e=>onPlanMeta({title:e.target.value})}/><textarea className="module-summary-input" aria-label="方案总述" value={plan.oneLiner} onChange={e=>onPlanMeta({oneLiner:e.target.value})}/></>:<><h3>{plan.title}</h3><p>{plan.oneLiner}</p></>}
@@ -148,10 +155,11 @@ export default function PlanView({ plan, active, onActive, isFavorite, onFavorit
         </ul>
         <button className="text-button" onClick={onAdjust}>修改这些设定 ↗</button>
       </details>}
+      </>}
 
       {visible.map((module) => {
         const meta = MODULES.find((item) => item.id === module.id)!;
-        const editable=editingPlan||editingModules.includes(module.id);
+        const editable=guided||editingPlan||editingModules.includes(module.id);
         const status=moduleStatus(plan,module.id),state=plan.moduleStates?.[module.id];
         return <section className={`plan-module weight-${module.weight}`} id={`module-${module.id}`} key={module.id}>
           <header className="module-head">
@@ -159,8 +167,8 @@ export default function PlanView({ plan, active, onActive, isFavorite, onFavorit
             <div>
               {editable&&onModuleMeta?<><input className="module-title-input" aria-label={`${module.title}章节标题`} value={module.title} onChange={e=>onModuleMeta(module.id,{title:e.target.value})}/><textarea className="module-summary-input" aria-label={`${module.title}章节摘要`} value={module.summary} onChange={e=>onModuleMeta(module.id,{summary:e.target.value})}/></>:<><h4>{module.title}</h4><p>{module.summary}</p></>}
             </div>
-            {onModuleStatus&&<label className="module-status-select">状态 <select aria-label={`${module.title}策划状态`} value={status} onChange={e=>onModuleStatus(module.id,e.target.value as PlanningStatus)}><option value="unhandled">未处理</option><option value="self">自行填写</option><option value="existing">已有</option><option value="not-needed">不需要</option><option value="pending">待定</option><option value="ai-suggested">AI 建议</option><option value="confirmed">已确认</option></select></label>}
-            {onTableRows&&<button className="chapter-edit-button" type="button" aria-pressed={editable} onClick={()=>{if(editingPlan){setEditingPlan(false);setEditingModules(plan.modules.filter(item=>item.id!==module.id).map(item=>item.id));}else setEditingModules(current=>current.includes(module.id)?current.filter(id=>id!==module.id):[...current,module.id]);}}>{editable?'完成本章编辑':'逐行编辑本章'}</button>}
+            {!guided&&onModuleStatus&&<label className="module-status-select">状态 <select aria-label={`${module.title}策划状态`} value={status} onChange={e=>onModuleStatus(module.id,e.target.value as PlanningStatus)}><option value="unhandled">未处理</option><option value="self">自行填写</option><option value="existing">已有</option><option value="not-needed">不需要</option><option value="pending">待定</option><option value="ai-suggested">AI 建议</option><option value="confirmed">已确认</option></select></label>}
+            {!guided&&onTableRows&&<button className="chapter-edit-button" type="button" aria-pressed={editable} onClick={()=>{if(editingPlan){setEditingPlan(false);setEditingModules(plan.modules.filter(item=>item.id!==module.id).map(item=>item.id));}else setEditingModules(current=>current.includes(module.id)?current.filter(id=>id!==module.id):[...current,module.id]);}}>{editable?'完成本章编辑':'逐行编辑本章'}</button>}
             <span className={`weight-badge ${module.weight}`}>{weightLabel[module.weight]}</span>
           </header>
           {status==='existing'&&<input className="module-existing-note" aria-label={`${module.title}已有内容说明`} placeholder="可选：已准备的内容或负责人" value={state?.note??''} onChange={e=>onModuleStatus?.(module.id,'existing',e.target.value)}/>}
@@ -168,7 +176,7 @@ export default function PlanView({ plan, active, onActive, isFavorite, onFavorit
           {status==='not-needed'&&<p className="module-state-hint">已标记不需要；原有内容仍保存，随时可恢复。</p>}
           {status==='ai-suggested'&&<div className="module-ai-suggestion"><strong>AI 建议 · 待组织者确认</strong><p>{state?.aiSuggestion||'正在生成建议…'}</p>{state?.aiSuggestion&&onAiDecision&&<div><button onClick={()=>onAiDecision(module.id,true)}>采用建议</button><button onClick={()=>onAiDecision(module.id,false)}>拒绝建议</button></div>}</div>}
           <details className="module-body" open={editable || undefined}><summary>查看 / 收起本章内容</summary>
-            {module.blocks.map((block, index) => <BlockView
+            {module.blocks.map((block, index) => focusedBlockIndex!==undefined&&index!==focusedBlockIndex?null:<BlockView
               key={`${module.id}-${index}-${editable?'edit':'read'}`}
               initiallyEditing={editable}
               onTitleChange={onBlockTitle?(title)=>onBlockTitle(module.id,index,title):undefined}
@@ -181,9 +189,9 @@ export default function PlanView({ plan, active, onActive, isFavorite, onFavorit
         </section>;
       })}
 
-      <footer className="plan-foot">
+      {!guided&&<footer className="plan-foot">
         <p>方案由本地策划引擎生成：预算、用量与时间均为估算，执行前请以询价与现场踏勘为准。</p>
-      </footer>
+      </footer>}
     </div>
   </div>;
 }

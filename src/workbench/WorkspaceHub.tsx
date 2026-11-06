@@ -1,13 +1,13 @@
 import {aiRequest} from '../services/AIService';
 import { exportModules } from '../planning/mode';
 import LifecyclePanel from '../lifecycle/LifecyclePanel';
-import {loadPreferences} from '../settings/preferences';
 import SimulationLab from '../simulation/SimulationLab';
 import { fingerprint as simulationFingerprint } from '../simulation/model';
 import PlanningFlow from './PlanningFlow';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import WorkGroupsPanel from './WorkGroupsPanel';
+import { cloneElement, isValidElement, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { ArrowRight, CalendarDays, FileText, LayoutDashboard, Users, Wrench, BarChart3, MapPin, CheckCircle2, Sparkles } from 'lucide-react';
-import type { EventPlan } from '../types';
+import type { EventPlan, ModuleId, PlanningStatus } from '../types';
 import { SCENES, TOOLS, recommendedTools, fields as makeFields } from './registry';
 import { uid, type ActivityDocument, type CustomTemplate, type Scene, type Workspace } from './model';
 import { loadTemplates, loadWorkspace, saveTemplates, saveWorkspace } from './storage';
@@ -30,11 +30,12 @@ import './workbench.css';
 const tabs=[{id:'overview',name:'活动概览',icon:LayoutDashboard},{id:'plan',name:'策划方案',icon:FileText},{id:'materials',name:'活动资料',icon:FileText},{id:'tools',name:'专属工具箱',icon:Wrench},{id:'documents',name:'文档中心',icon:FileText},{id:'people',name:'人员与任务',icon:Users},{id:'stats',name:'数据统计',icon:BarChart3},{id:'simulation',name:'活动模拟',icon:BarChart3}];
 const groups=[{id:'overview',name:'活动概览',items:['overview']},{id:'plan',name:'活动策划',items:['plan','materials','tools','documents','people','stats']},{id:'analysis',name:'智能分析',items:['analysis']},{id:'simulation',name:'模拟与执行',items:['simulation','live']},{id:'review',name:'活动复盘',items:['review']}];
 const categories=['全部','活动策划文件','报名与人员资料','活动流程文件','任务分工文件','预算与物资文件','活动专属文件','成绩与统计文件','总结与反馈文件'];
-export default function WorkspaceHub({plan,apiKey,children,onPlanChange,onRestoreProject,assistantRequest}:{plan:EventPlan;apiKey:string;children:ReactNode;onPlanChange?:(plan:EventPlan)=>void;onRestoreProject?:(project:import('../projects/model').ActivityProject)=>void;assistantRequest?:{id:string;text:string}|null}) {
+export default function WorkspaceHub({plan,apiKey,children,onPlanChange,onRestoreProject,assistantRequest,onStageStatus,onStageAiConfirm,onSelectModule,onCheckpoint}:{plan:EventPlan;apiKey:string;children:ReactNode;onPlanChange?:(plan:EventPlan)=>void;onRestoreProject?:(project:import('../projects/model').ActivityProject)=>void;assistantRequest?:{id:string;text:string}|null;onStageStatus:(id:ModuleId,status:PlanningStatus,note?:string)=>void;onStageAiConfirm:(id:ModuleId,text:string,items:string[])=>void;onSelectModule:(id:ModuleId)=>void;onCheckpoint:()=>Promise<unknown>}) {
   const [loaded]=useState(()=>loadWorkspace(plan));const [data,setData]=useState(loaded.data);const [tab,setTab]=useState('overview');const [status,setStatus]=useState(loaded.error);const [activeTool,setActiveTool]=useState('');const [selectedDoc,setSelectedDoc]=useState('');const [query,setQuery]=useState('');const [category,setCategory]=useState('全部');const [busy,setBusy]=useState('');const [library,setLibrary]=useState(loadTemplates);const [aiDraft,setAiDraft]=useState('');const [suggestion,setSuggestion]=useState<{toolIds:string[];fields:string[];reason:string}|null>(null);const [readError,setReadError]=useState(!!loaded.error);
   const workspaceEdited=useRef(false);
   const [flowRequest,setFlowRequest]=useState<{id:string;text:string}|null>(null);
-  useEffect(()=>{setFlowRequest(null);},[assistantRequest]);
+  const [assistantOpen,setAssistantOpen]=useState(false);
+  useEffect(()=>{setFlowRequest(null);if(assistantRequest)setAssistantOpen(true);},[assistantRequest]);
   async function commit(next:Workspace,reason?:string) {
     workspaceEdited.current=true;
     if(readError){setStatus('存档异常，已阻止覆盖。请先导出原始存档再保存。');return false;}
@@ -55,11 +56,11 @@ export default function WorkspaceHub({plan,apiKey,children,onPlanChange,onRestor
   const active=getDefinition(activeTool,data);const doc=data.documents.find(item=>item.id===selectedDoc);
   const suggested=recommendedTools(data);const enabled=data.tools.map(id=>getDefinition(id,data)).filter((tool):tool is NonNullable<typeof tool>=>!!tool);
   const taskRows=tableRows(data,'tasks');const completed=taskRows.filter(row=>row.status==='已完成').length;
-  const sourceFor=(document:ActivityDocument)=>document.toolId==='plan'?JSON.stringify([exportModules(plan),plan.planningMode,plan.moduleStates]):documentSource(data,plan,document.toolId);
+  const sourceFor=(document:ActivityDocument)=>document.toolId==='plan'?JSON.stringify([exportModules(plan),plan.planningMode,plan.moduleStates,data.workGroups,data.flow,data.profile]):documentSource(data,plan,document.toolId);
   function generateDoc(id:string) {
     const previous=data.documents.find(item=>item.toolId===id);
     if(previous?.manual&&!window.confirm('这份文档有手动编辑，重新生成将覆盖当前内容。继续？'))return;
-    let next=createDocument(data,plan,id);if(id==='plan')next={...next,source:JSON.stringify([exportModules(plan),plan.planningMode,plan.moduleStates])};
+    let next=createDocument(data,plan,id);if(id==='plan')next={...next,source:JSON.stringify([exportModules(plan),plan.planningMode,plan.moduleStates,data.workGroups,data.flow,data.profile])};
     if(previous)next={...next,id:previous.id,createdAt:previous.createdAt,version:previous.version+1};
     commit({...data,documents:previous?data.documents.map(item=>item.id===previous.id?next:item):[...data.documents,next]});setSelectedDoc(next.id);setTab('documents');setAiDraft('');
   }
@@ -100,8 +101,7 @@ export default function WorkspaceHub({plan,apiKey,children,onPlanChange,onRestor
   const personFields=[{key:'name',label:'姓名或代号'},{key:'roles',label:'角色（逗号分隔）'},{key:'organization',label:'组织单位'},...(data.tables['people-fields']?.fields??[{key:'note',label:'备注'}])];
   const renderCard=(tool:NonNullable<ReturnType<typeof getDefinition>>)=> <article className="wb-tool-card" key={tool.id}><span className="wb-tool-icon"><Wrench size={18}/></span><span className="wb-badge">{data.tools.includes(tool.id)?'已启用':'可添加'}</span><h3>{tool.name}</h3><p>{tool.description}</p><div className="wb-card-foot"><span>{tool.kind==='text'?'文档模板':tool.kind==='table'?'数据表格':'专业工具'}</span><button type="button" onClick={()=>openTool(tool.id)}>{data.tools.includes(tool.id)?'打开工具':'添加并打开'} <ArrowRight size={14}/></button></div></article>;
   return <div className="wb-hub">
-    <header className="wb-event-head"><div><span className="mini-label">ACTIVITY WORKSPACE</span><h1>{plan.title}</h1><div className="wb-meta"><span><CalendarDays size={15}/>{plan.brief.dateLabel||'日期待确认'}</span><span><MapPin size={15}/>{data.profile.location||'地点待填写'}</span><span className="wb-badge">{data.profile.status}</span></div></div><button type="button" onClick={backup}>备份活动资料</button></header>
-    {loadPreferences().onboarding&&['overview','plan'].includes(tab)&&<PlanningFlow plan={plan} data={data} onChange={commit} onOpen={setTab} onAssist={text=>{setFlowRequest({id:uid(),text});window.setTimeout(()=>document.getElementById('flow-assistant')?.scrollIntoView({behavior:'smooth'}),50);}}/>}
+    <header className="wb-event-head"><div><span className="mini-label">ACTIVITY WORKSPACE</span><h1>{plan.title}</h1><div className="wb-meta"><span><CalendarDays size={15}/>{plan.brief.dateLabel||'日期待确认'}</span><span><MapPin size={15}/>{data.profile.location||'地点待填写'}</span><span className="wb-badge">{data.profile.status}</span></div></div><div className="wb-inline-actions"><button type="button" onClick={()=>setAssistantOpen(true)}><Sparkles size={16}/> AI 助手</button><button type="button" onClick={backup}>备份活动资料</button></div></header>
     <nav className="wb-main-tabs" aria-label="活动工作区">{groups.map(item=><button key={item.id} type="button" className={item.items.includes(tab)?'active':''} aria-current={item.items.includes(tab)?'page':undefined} onClick={()=>setTab(item.id)}>{item.id==='overview'?<LayoutDashboard size={17}/>:item.id==='plan'?<FileText size={17}/>:item.id==='analysis'?<Sparkles size={17}/>:<BarChart3 size={17}/>} {item.name}</button>)}</nav>
     {groups.find(g=>g.items.includes(tab))?.items.length!>1&&<nav className="wb-subnav" aria-label="活动分类功能">{groups.find(g=>g.items.includes(tab))!.items.map(id=>{const item=tabs.find(t=>t.id===id);const Icon=item?.icon??LayoutDashboard;return <button key={id} className={id===tab?'active':''} onClick={()=>setTab(id)}><Icon size={16}/>{item?.name??'现场指挥中心'}</button>;})}</nav>}
     {(['analysis','live','review'] as const).filter(mode=>mode===tab).map(mode=><LifecyclePanel key={mode} mode={mode} plan={plan} data={data} onChange={commit} onRestore={p=>{if(p.workspace){setData(p.workspace);saveWorkspace(p.workspace);}onRestoreProject?.(p);}} onOpen={setTab}/>)}
@@ -115,8 +115,8 @@ export default function WorkspaceHub({plan,apiKey,children,onPlanChange,onRestor
       {readError&&<button type="button" onClick={()=>{if(window.confirm('确认保留原始存档备份后，以当前空白资料重新保存？')){setReadError(false);setStatus('已解除保护，请重新填写并保存。');}}}>已备份原始存档，允许重新保存</button>}
     </>}
     {tab==='overview'&&<section className="wb-card"><h3>下一步：{data.profile.status==='已结束'?'复盘实际活动': ['即将举行','进行中'].includes(data.profile.status)?'进入现场执行':'检查并检验你的方案'}</h3><p className="wb-help">在虚拟环境中测试你的活动方案，发现可能出现的突发问题。模拟前检查准备度，不需要先完成所有文档。</p><div className="wb-inline-actions"><button type="button" className="primary" onClick={()=>setTab(data.profile.status==='已结束'?'review':['即将举行','进行中'].includes(data.profile.status)?'live':'analysis')}>{data.profile.status==='已结束'?'生成活动复盘':['即将举行','进行中'].includes(data.profile.status)?'进入现场指挥中心':'检查活动方案'}</button><button type="button" onClick={()=>setTab('simulation')}>开始活动模拟</button><button type="button" onClick={()=>setTab('plan')}>暂不模拟，继续策划</button></div></section>}
-    {tab==='plan'&&<><OrganizerIdeaUpload plan={plan} workspace={data} onChange={commit}/>{children}</>}
-    {tab==='materials'&&<MaterialsCenter plan={plan} workspace={data} onChange={commit}/>}
+    {tab==='plan'&&<PlanningFlow plan={plan} data={data} onChange={commit} onStageStatus={onStageStatus} onAiConfirm={onStageAiConfirm} onSelectModule={onSelectModule} onCheckpoint={onCheckpoint} onOpen={setTab} renderEditor={(id,index)=>isValidElement(children)?cloneElement(children as ReactElement<{guided?:boolean;focusedModuleId?:ModuleId;focusedBlockIndex?:number}>,{guided:true,focusedModuleId:id,focusedBlockIndex:index}):children}/>}
+    {tab==='materials'&&<><OrganizerIdeaUpload plan={plan} workspace={data} onChange={commit}/><MaterialsCenter plan={plan} workspace={data} onChange={commit}/></>}
     {tab==='tools'&&<>
       <div className="wb-section-heading"><div><h2>专属工具箱</h2><p>为{SCENES.find(s=>s.id===data.scene)?.name}推荐。只启用需要的工具。</p></div><button type="button" onClick={()=>createCustom()}>＋ 自定义工具</button></div>
       {active&&<section className="wb-card wb-tool-editor"><div className="wb-section-heading"><div><span className="mini-label">OPEN TOOL</span><h3>{active.name}</h3></div><div className="wb-inline-actions"><button type="button" onClick={()=>generateDoc(active.id)}>生成文档</button><button type="button" onClick={()=>void exportCurrent(createDocument(data,plan,active.id),active.kind==='text'?'docx':'xlsx')}>导出</button><button type="button" onClick={()=>setActiveTool('')}>收起</button><button className="danger" type="button" onClick={()=>{if(window.confirm('从工具箱移除此工具？原有数据与文档会保留。')){commit({...data,tools:data.tools.filter(id=>id!==active.id)});setActiveTool('');}}}>移除</button></div></div>
@@ -128,7 +128,7 @@ export default function WorkspaceHub({plan,apiKey,children,onPlanChange,onRestor
       {suggestion&&<section className="wb-card"><h3>AI 推荐 · 待采用</h3><p>{suggestion.reason}</p><ul>{suggestion.toolIds.map(id=><li key={id}>{getDefinition(id,data)?.name}</li>)}</ul><p>建议自定义字段：{suggestion.fields.join('、')||'无'}</p><button type="button" onClick={()=>{commit({...data,tools:[...new Set([...data.tools,...suggestion.toolIds])]});setSuggestion(null);}}>采用工具组合</button>{suggestion.fields.length>0&&<button type="button" onClick={()=>createCustom({id:uid(),name:'AI 建议的自定义表格',kind:'table',text:'',fields:makeFields(suggestion.fields)})}>使用建议字段建表</button>}</section>}
     </>}
     {tab==='documents'&&<>
-      <div className="wb-section-heading"><div><h2>智能文档中心</h2><p>源数据同步、人工编辑与 AI 初稿分开管理。</p></div><button className="primary" type="button" onClick={()=>generateDoc('plan')}>生成策划文档</button></div>
+      <div className="wb-section-heading"><div><h2>导出中心</h2><p>生成正式活动章程，或前往工作组导出独立任务书。</p></div><div className="wb-inline-actions"><button className="primary" type="button" onClick={()=>generateDoc('plan')}>生成完整活动策划案</button><button type="button" onClick={()=>setTab('people')}>导出工作组任务书</button></div></div>
       <div className="wb-grid-actions"><input aria-label="搜索文档" placeholder="搜索活动文档" value={query} onChange={e=>setQuery(e.target.value)}/><select aria-label="文档分类" value={category} onChange={e=>setCategory(e.target.value)}>{categories.map(c=><option key={c}>{c}</option>)}</select><button type="button" onClick={()=>setTab('tools')}>从工具生成文档</button></div>
       <div className="wb-document-layout"><aside className="wb-doc-list">{data.documents.filter(d=>(category==='全部'||d.category===category)&&(!query||d.name.includes(query))).map(item=><button className={item.id===selectedDoc?'active':''} key={item.id} type="button" onClick={()=>{setSelectedDoc(item.id);setAiDraft('');}}><FileText size={18}/><span><strong>{item.name}</strong><small>v{item.version} · {item.manual?'手动编辑':item.ai?'AI 初稿':item.type==='table'?'自动同步':'系统模板'}{item.source!==sourceFor(item)?' · 源数据有更新':''}</small></span></button>)}{!data.documents.length&&<div className="wb-empty">尚无文档。先从工具箱录入资料，再生成需要的文档。</div>}</aside>
       <section className="wb-card">{doc?<>
@@ -142,12 +142,13 @@ export default function WorkspaceHub({plan,apiKey,children,onPlanChange,onRestor
     </>}
     {tab==='people'&&<>
       <div className="wb-section-heading"><div><h2>人员与任务</h2><p>一个人可承担多个角色。仅收集执行所需资料。</p></div></div>
+      <WorkGroupsPanel plan={plan} data={data} onChange={commit}/>
       <section className="wb-card"><h3>人员登记</h3><Grid name="人员" fields={personFields} rows={data.people.map(person=>({...person.fields,id:person.id,name:person.name,roles:person.roles.join(','),organization:data.organizations.find(org=>org.id===person.organizationId)?.name??''}))} onChange={rows=>commit({...data,people:rows.map(row=>({id:row.id,name:row.name??'',roles:(row.roles??'参与者').split(/[,，]/).map(v=>v.trim()).filter(Boolean),organizationId:data.organizations.find(org=>org.name===row.organization)?.id,fields:Object.fromEntries(Object.entries(row).filter(([key])=>!['id','name','roles','organization'].includes(key)))}))})} onFields={fields=>commit({...data,tables:{...data.tables,'people-fields':{id:'people-fields',name:'人员字段',fields:fields.filter(field=>!['name','roles','organization'].includes(field.key)),rows:[],revision:1}}})} importable/></section>
       <details className="wb-card"><summary>组织单位与团队</summary><Grid name="组织" fields={[{key:'name',label:'组织名称'},{key:'kind',label:'组织类型',options:['组织单位','参赛队伍','演出团队','工作小组','部门','志愿者团队']}]} rows={data.organizations.map(org=>({...org}))} onChange={rows=>commit({...data,organizations:rows.map(row=>({id:row.id,name:row.name??'',kind:(row.kind||'组织单位') as Workspace['organizations'][number]['kind']}))})}/></details>
       <section className="wb-card"><h3>任务分工</h3><Grid name="任务" fields={[{key:'title',label:'任务'},{key:'owner',label:'负责人'},{key:'due',label:'完成期限',type:'date'},{key:'status',label:'状态',options:['未开始','进行中','已完成']},{key:'resources',label:'资源'},{key:'note',label:'备注'}]} rows={taskRows} onChange={rows=>commit(updateTable(data,'tasks',rows))}/></section>
       <details className="wb-card"><summary>执行流程与节点</summary><Grid name="流程" fields={[{key:'start',label:'开始',type:'time'},{key:'end',label:'结束',type:'time'},{key:'title',label:'活动环节'},{key:'owner',label:'负责人'},{key:'people',label:'参与人员'},{key:'venue',label:'场地'},{key:'equipment',label:'设备'},{key:'status',label:'状态',options:['待执行','进行中','已完成']},{key:'note',label:'备注'}]} rows={data.flow.map(node=>({...node,people:node.people.join(',')}))} onChange={rows=>commit({...data,flow:rows.map(row=>({id:row.id,start:row.start??'',end:row.end??'',title:row.title??'',owner:row.owner??'',people:(row.people??'').split(/[,，]/).filter(Boolean),venue:row.venue??'',equipment:row.equipment??'',status:row.status??'待执行',note:row.note??''}))})}/></details>
     </>}
-    <div id="flow-assistant"/><AssistantPanel plan={plan} workspace={data} apiKey={apiKey} onApply={acceptAssistant} onUndo={undoAssistant} request={flowRequest ?? assistantRequest}/>
+    {assistantOpen&&<div className="v3-assistant-overlay" onClick={()=>setAssistantOpen(false)}><div className="v3-assistant-drawer" onClick={e=>e.stopPropagation()}><button className="v3-assistant-close" onClick={()=>setAssistantOpen(false)}>关闭 AI 助手</button><AssistantPanel plan={plan} workspace={data} apiKey={apiKey} onApply={acceptAssistant} onUndo={undoAssistant} request={flowRequest ?? assistantRequest}/></div></div>}
     {tab==='stats'&&<>
       <div className="wb-section-heading"><div><h2>活动数据统计</h2><p>只基于已登记和录入的数据计算，空数据不生成虚构成果。</p></div></div>
       <div className="wb-metrics">{[['登记人员',data.people.length],['任务完成率',taskRows.length?`${Math.round(completed/taskRows.length*100)}%`:'暂无任务'],['运动员',data.athletics.athletes.length],['有效成绩',data.athletics.results.filter(row=>row.status==='有效'&&row.value.trim()).length],['演出总分钟',orderedAgenda(tableRows(data,'performances'),'09:00',true).reduce((sum,item)=>sum+item.duration,0)],['实际志愿服务小时',tableRows(data,'volunteers').reduce((sum,row)=>sum+Math.max(0,Number(row.f5)||0),0)]].map(([label,value])=><div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>

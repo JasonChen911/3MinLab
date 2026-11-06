@@ -1,6 +1,6 @@
 import type { EventPlan } from '../types';
 import {emergencyFields,reviewReport} from '../lifecycle/records';
-import { buildPlanMarkdown } from '../rules/export';
+import { buildCharterMarkdown } from './charter';
 import { exportModules } from '../planning/mode';
 import { rankProject, teamStandings } from './athletics';
 import { DEFAULT_SPORTS_RULES, fixtures, judgeRanking, orderedAgenda, sportsStandings, type Criterion, type JudgeScore, type Match, type SportsRules } from './calculations';
@@ -55,7 +55,7 @@ export function documentContent(workspace:Workspace,plan:EventPlan,toolId:string
   if(toolId==='emergency')return {type:'text',headers:[],rows:[],text:(workspace.tables.emergency?.rows??[]).map(r=>emergencyFields.map(f=>`${f.label}：${r[f.key]||'待确认'}`).join('\n')).join('\n\n')+'\n\n消防、医疗和疏散措施须专业审核。'};
   if(toolId==='actual-review')return {type:'text',headers:[],rows:[],text:reviewReport(plan,workspace)};
   if(toolId==='ai-lifecycle-notes')return {type:'text',headers:[],rows:[],text:workspace.documents.find(d=>d.toolId===toolId)?.text??'需重新请求 AI 并确认建议'};
-  if(toolId==='plan')return {type:'text',text:buildPlanMarkdown(plan),headers:[],rows:[]};
+  if(toolId==='plan')return {type:'text',text:buildCharterMarkdown(plan,workspace),headers:[],rows:[]};
   const tool=getDefinition(toolId,workspace); const data=workspace.athletics;
   const table=(headers:string[],rows:string[][])=>({type:'table' as const,text:'',headers,rows});
   if(toolId==='ath-entry')return table(['编号','姓名','队伍','组别','参赛项目','报名成绩'],data.athletes.map(a=>[a.number,a.name,a.team,a.group,a.projects.map(id=>data.projects.find(p=>p.id===id)?.name??id).join('、'),a.seed]));
@@ -82,11 +82,11 @@ export function documentContent(workspace:Workspace,plan:EventPlan,toolId:string
 }
 export function createDocument(workspace:Workspace,plan:EventPlan,toolId:string):ActivityDocument {
   const tool=getDefinition(toolId,workspace);const now=new Date().toISOString();
-  return {id:uid(),activityId:plan.id,toolId,name:tool?.name??'活动策划文件',category:tool?.category??'活动策划文件',...documentContent(workspace,plan,toolId),createdAt:now,updatedAt:now,version:1,source:documentSource(workspace,plan,toolId),manual:false,ai:false,formats:['docx','xlsx','pdf']};
+  return {id:uid(),activityId:plan.id,toolId,name:toolId==='plan'?`${plan.title}活动组织章程`:tool?.name??'活动策划文件',category:tool?.category??'活动策划文件',...documentContent(workspace,plan,toolId),createdAt:now,updatedAt:now,version:1,source:documentSource(workspace,plan,toolId),manual:false,ai:false,formats:['docx','xlsx','pdf']};
 }
 export function syncDocuments(workspace:Workspace,plan:EventPlan):Workspace {
   return {...workspace,documents:workspace.documents.map(doc=> {
-    const source=doc.toolId==='plan'?JSON.stringify([exportModules(plan),plan.planningMode,plan.moduleStates]):documentSource(workspace,plan,doc.toolId);
+    const source=doc.toolId==='plan'?JSON.stringify([exportModules(plan),plan.planningMode,plan.moduleStates,workspace.workGroups,workspace.flow,workspace.profile]):documentSource(workspace,plan,doc.toolId);
     if(doc.manual||doc.ai||doc.type!=='table'||doc.source===source)return doc;
     return {...doc,...documentContent(workspace,plan,doc.toolId),source,updatedAt:new Date().toISOString(),version:doc.version+1};
   })};

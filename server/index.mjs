@@ -4,7 +4,7 @@ import { join, resolve, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assistWithDeepSeek } from './ai.mjs';
 import { apiKey, aiStatus, configureAI, testAI, runAITask, createActivityDraft, providerFetch } from './ai-service.mjs';
-import { generateFile, importWorkbook } from './files.mjs';
+import { generateFile, generateBundle, importWorkbook } from './files.mjs';
 import { generateDocumentAI } from './document-ai.mjs';
 import { requestAdjustment } from './assistant-ai.mjs';
 
@@ -50,6 +50,10 @@ const server = createServer(async (req, res) => {
     }
     if (pathname === '/api/files/export' && req.method === 'POST') {
       try { const payload=await readJson(req); const result=await generateFile(payload);res.writeHead(200,{'Content-Type':result.mime,'Cache-Control':'no-store','Content-Disposition':`attachment; filename="activity-document.${payload.format}"`});return res.end(result.bytes); }
+      catch(error){return send(res,400,{error:error.message});}
+    }
+    if (pathname === '/api/files/export-bundle' && req.method === 'POST') {
+      try { const payload=await readJson(req);const result=await generateBundle(payload.files);res.writeHead(200,{'Content-Type':result.mime,'Cache-Control':'no-store','Content-Disposition':'attachment; filename="workgroup-tasks.zip"'});return res.end(result.bytes); }
       catch(error){return send(res,400,{error:error.message});}
     }
     if(pathname==='/api/files/import-xlsx'&&req.method==='POST') {

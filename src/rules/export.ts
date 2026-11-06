@@ -8,7 +8,7 @@ import type { Block, EventPlan } from '../types';
  * 打印复用同一份结构（浏览器打印样式在 style.css 中）。
  * ============================================================ */
 
-const renderBlock = (block: Block): string[] => {
+export const renderBlock = (block: Block): string[] => {
   switch (block.kind) {
     case 'text':
       return [block.text, ''];
