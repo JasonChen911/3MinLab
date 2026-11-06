@@ -44,7 +44,7 @@ describe('整页渲染', () => {
     const html = renderToString(<App/>);
     expect(html).toContain('什么活动都能策划');
     expect(html).toContain('描述你的活动想法');
-    expect(html).toContain('按类型找起点');
+    expect(html).toContain('找一个适合你的活动起点');
     expect(html).toContain('校园教育类');
     expect(html).toContain('新生迎新活动');
     expect(html).toContain('36');

@@ -1,6 +1,7 @@
 import type { EventPlan } from '../types';
 import {emergencyFields,reviewReport} from '../lifecycle/records';
 import { buildPlanMarkdown } from '../rules/export';
+import { exportModules } from '../planning/mode';
 import { rankProject, teamStandings } from './athletics';
 import { DEFAULT_SPORTS_RULES, fixtures, judgeRanking, orderedAgenda, sportsStandings, type Criterion, type JudgeScore, type Match, type SportsRules } from './calculations';
 import { getTool } from './registry';
@@ -85,7 +86,7 @@ export function createDocument(workspace:Workspace,plan:EventPlan,toolId:string)
 }
 export function syncDocuments(workspace:Workspace,plan:EventPlan):Workspace {
   return {...workspace,documents:workspace.documents.map(doc=> {
-    const source=doc.toolId==='plan'?JSON.stringify(plan.modules):documentSource(workspace,plan,doc.toolId);
+    const source=doc.toolId==='plan'?JSON.stringify([exportModules(plan),plan.planningMode,plan.moduleStates]):documentSource(workspace,plan,doc.toolId);
     if(doc.manual||doc.ai||doc.type!=='table'||doc.source===source)return doc;
     return {...doc,...documentContent(workspace,plan,doc.toolId),source,updatedAt:new Date().toISOString(),version:doc.version+1};
   })};

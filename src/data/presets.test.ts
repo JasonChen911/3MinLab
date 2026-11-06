@@ -30,9 +30,10 @@ const riskTitles = (plan: EventPlan) => {
 };
 
 describe('预设库', () => {
-  it('提供 12 个预设，覆盖 10 个分类入口', () => {
-    expect(PRESETS).toHaveLength(12);
-    expect(new Set(PRESETS.map((preset) => preset.id)).size).toBe(12);
+  it('保留原有 12 个预设并扩充大小型活动，覆盖 10 个分类入口', () => {
+    expect(PRESETS.length).toBeGreaterThanOrEqual(50);
+    expect(new Set(PRESETS.map((preset) => preset.id)).size).toBe(PRESETS.length);
+    expect(PRESETS.filter(p=>p.scaleType==='small').length).toBeGreaterThanOrEqual(30);
     expect(GROUPS).toHaveLength(10);
     expect(GROUPS.map((group) => group.id)).toEqual([
       'campus-education', 'sports', 'charity', 'business', 'culture',
@@ -44,11 +45,11 @@ describe('预设库', () => {
     expect(preset.intro.length).toBeGreaterThan(40);
     expect(preset.audience.length).toBeGreaterThan(3);
     expect(preset.goal.length).toBeGreaterThan(8);
-    expect(preset.flow.length).toBeGreaterThanOrEqual(5);
-    expect(preset.roles.length).toBeGreaterThanOrEqual(4);
-    expect(preset.materials.length).toBeGreaterThanOrEqual(7);
-    expect(preset.budgetLines.length).toBeGreaterThanOrEqual(6);
-    expect(preset.risks.length).toBeGreaterThanOrEqual(3);
+    expect(preset.flow.length).toBeGreaterThanOrEqual(preset.scaleType==='small'?3:5);
+    expect(preset.roles.length).toBeGreaterThanOrEqual(preset.scaleType==='small'?2:4);
+    expect(preset.materials.length).toBeGreaterThanOrEqual(preset.scaleType==='small'?4:7);
+    expect(preset.budgetLines.length).toBeGreaterThanOrEqual(preset.scaleType==='small'?3:6);
+    expect(preset.risks.length).toBeGreaterThanOrEqual(preset.scaleType==='small'?1:3);
     expect(preset.highlights.length).toBeGreaterThanOrEqual(2);
   });
 

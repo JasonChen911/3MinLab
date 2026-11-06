@@ -4,6 +4,12 @@ import { ArrowLeft, ArrowRight, Clock3, FileText, History, Menu, X, Settings, Sp
 import BriefPanel from './components/BriefPanel';
 import PlanView from './components/PlanView';
 import PresetGallery from './components/PresetGallery';
+import HomeActivityAssistant from './components/HomeActivityAssistant';
+import { briefFromActivityDraft, type ActivityDraft } from './services/activityDraft';
+import { recommendPlanningMode } from './planning/mode';
+import { setModuleStatus } from './planning/mode';
+import { aiRequest } from './services/AIService';
+import { PRESETS } from './data/presets';
 import HistoryPanel from './components/HistoryPanel';
 import SettingsPanel from './components/SettingsPanel';
 import { AiClarify, AiModuleAssist } from './components/AiAssist';
@@ -33,6 +39,8 @@ import type {
   EventBrief,
   EventPlan,
   ModuleId,
+  PlanningMode,
+  PlanningStatus,
 } from './types';
 
 const EXAMPLES = [
@@ -144,7 +152,8 @@ export default function App() {
   function startPlanning(text: string) {
     const trimmed = text.trim();
     if (!trimmed) return;
-    const nextBrief = createBrief(trimmed);
+    const baseBrief = createBrief(trimmed);
+    const nextBrief = { ...baseBrief, planningMode: recommendPlanningMode(baseBrief) };
     setProjectId(uid());
     setIdea(trimmed);
     setBrief(nextBrief);
@@ -157,9 +166,19 @@ export default function App() {
     window.setTimeout(() => document.getElementById('brief-grid')?.scrollIntoView({ block: 'start', behavior: 'smooth' }), 60);
   }
 
+  function startFromAiDraft(draft: ActivityDraft) {
+    const nextBrief=briefFromActivityDraft(idea.trim(),draft);
+    if(nextBrief.sources.category==='assumed'){
+      setProjectId(uid());setBrief(nextBrief);setPlan(null);setAsked([]);setAiQuestions([]);setStage('intake');setActiveModule('basic');navigateTo('workspace');announce('活动类型仍不明确，请先选择类型或确认使用通用框架');return;
+    }
+    const next={...generatePlan(nextBrief),id:uid()};
+    setProjectId(next.id);setBrief(nextBrief);setPlan(next);setAsked([]);setAiQuestions([]);setStage('plan');setActiveModule('basic');persist(next,true);navigateTo('workspace');announce('AI 初稿已进入策划工作台；建议和未确定信息仍可修改');
+  }
+
   /** 从预设模板起稿：进入需求确认，字段已按预设填好且可改 */
   function startFromPreset(presetId: string) {
-    const nextBrief = createBriefFromPreset(presetId);
+    const baseBrief = createBriefFromPreset(presetId);
+    const nextBrief = { ...baseBrief, planningMode: recommendPlanningMode(baseBrief) };
     setProjectId(uid());
     setIdea(nextBrief.idea);
     setBrief(nextBrief);
@@ -234,11 +253,30 @@ export default function App() {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }, 220);
   }
+  function changePlanningMode(mode:PlanningMode){if(!plan)return;const next={...plan,planningMode:mode,brief:{...plan.brief,planningMode:mode}};setPlan(next);setBrief(next.brief);persist(next,true);}
+  function changeModuleStatus(id:ModuleId,status:PlanningStatus,note=''){
+    if(!plan)return;
+    const next=setModuleStatus(plan,id,status,note);setPlan(next);persist(next,true);
+    if(status!=='ai-suggested')return;
+    const module=plan.modules.find(m=>m.id===id);
+    void aiRequest<{text:string}>('/api/ai/task',{task:'reviseActivity',context:{instruction:`只为“${module?.title}”提出与当前活动有关的简洁可执行建议；已有内容不可当成已确认事实。`,activity:plan.title,mode:plan.planningMode,brief:{category:plan.brief.categoryId,people:plan.brief.people,venue:plan.brief.venue,goal:plan.brief.goal},module:{title:module?.title,summary:module?.summary}}}).then(result=>{
+      setPlan(current=>current?.id===plan.id&&current.moduleStates?.[id]?.status==='ai-suggested'?{...current,moduleStates:{...current.moduleStates,[id]:{...current.moduleStates[id]!,aiSuggestion:result.text}}}:current);
+    }).catch(error=>{announce(error instanceof Error?error.message:'AI 服务不可用');setPlan(current=>current?.id===plan.id&&current.moduleStates?.[id]?.status==='ai-suggested'?setModuleStatus(current,id,'pending'):current);});
+  }
+  function decideModuleSuggestion(id:ModuleId,accept:boolean){if(!plan)return;const suggestion=plan.moduleStates?.[id]?.aiSuggestion??'';const next=setModuleStatus({...plan,modules:accept?plan.modules.map(m=>m.id===id?{...m,aiNote:suggestion}:m):plan.modules},id,accept?'confirmed':'self');if(!accept&&next.moduleStates?.[id])next.moduleStates[id]={...next.moduleStates[id],aiSuggestion:undefined};setPlan(next);persist(next,true);}
 
   function changeField(key: BriefFieldKey, value: string) {
     if (!brief) return;
-    setBrief(updateField(brief, key, value));
+    const next=updateField(brief,key,value);
+    if(next.fieldStates?.[key])next.fieldStates={...next.fieldStates,[key]:{...next.fieldStates[key]!,status:'self',confirmed:false,updatedAt:new Date().toISOString()}};
+    setBrief(next);
   }
+  function changeFieldStatus(key:BriefFieldKey,status:PlanningStatus,note?:string){
+    if(!brief)return;const old=brief.fieldStates?.[key];setBrief({...brief,fieldStates:{...brief.fieldStates,[key]:{...old,status,note:note??old?.note,confirmed:['existing','not-needed','confirmed'].includes(status),updatedAt:new Date().toISOString()}}});
+    if(status!=='ai-suggested')return;
+    void aiRequest<{text:string}>('/api/ai/task',{task:'reviseActivity',context:{instruction:`仅针对活动的“${key}”条件提出简短建议；未知值标为待确认，不编造已确定事实。`,title:brief.title,idea:brief.idea,category:brief.categoryId,people:brief.people,venue:brief.venue}}).then(result=>setBrief(current=>current?.idea===brief.idea&&current.fieldStates?.[key]?.status==='ai-suggested'?{...current,fieldStates:{...current.fieldStates,[key]:{...current.fieldStates[key]!,aiSuggestion:result.text}}}:current)).catch(error=>{announce(error instanceof Error?error.message:'AI 服务不可用');setBrief(current=>current?.fieldStates?.[key]?.status==='ai-suggested'?{...current,fieldStates:{...current.fieldStates,[key]:{...current.fieldStates[key]!,status:'pending'}}}:current);});
+  }
+  function decideFieldSuggestion(key:BriefFieldKey,accept:boolean){if(!brief)return;const old=brief.fieldStates?.[key];if(!old)return;setBrief({...brief,fieldStates:{...brief.fieldStates,[key]:{...old,status:accept?'confirmed':'self',confirmed:accept,note:accept?old.aiSuggestion:old.note,aiSuggestion:undefined,updatedAt:new Date().toISOString()}}});}
 
   function changeDays(days: number) {
     if (!brief) return;
@@ -405,25 +443,12 @@ export default function App() {
         <div className="hero-copy">
           <div className="eyebrow"><span className="pulse"/> ANY EVENT, PLANNED</div>
           <h1>什么活动都能策划，<br/><em>从一句话开始。</em></h1>
-          <p>校园迎新、毕业晚会、马拉松、发布会、招聘会、社区公益、家庭聚会……说你想要什么，生成一份含 12 个模块、可直接执行的活动方案。</p>
-          <form className="idea-form" onSubmit={(event) => { event.preventDefault(); startPlanning(idea); }}>
-            <textarea
-              ref={ideaRef}
-              value={idea}
-              onChange={(event) => setIdea(event.target.value.slice(0, 200))}
-              placeholder="例如：下个月在体育馆办一场 800 人的校园马拉松，预算 6 万，需要医疗和补给方案"
-              aria-label="描述你的活动想法"
-              rows={3}
-            />
-            <div className="idea-form-foot">
-              <span className="idea-count">{idea.length}/200</span>
-              <button className="hero-start" type="submit" disabled={!idea.trim()}>开始策划 <ArrowRight size={18}/></button>
-            </div>
-          </form>
+          <p>一句话说出你的想法。小型聚会轻松安排，大型活动完整策划。</p>
+          <HomeActivityAssistant idea={idea} onIdea={setIdea} onManual={startPlanning} onConfirm={startFromAiDraft} ideaRef={ideaRef}/>
           <div className="idea-examples" aria-label="示例活动">
-            {EXAMPLES.map((example) => <button key={example} type="button" onClick={() => startPlanning(example)}>{example}</button>)}
+            {EXAMPLES.map((example) => <button key={example} type="button" onClick={() => {setIdea(example);ideaRef.current?.focus();}}>{example}</button>)}
           </div>
-          <a className="hero-preset-link" href="#presets">没有头绪？浏览 12 个预设模板 ↓</a>
+          <a className="hero-preset-link" href="#presets">没有头绪？浏览活动模板 ↓</a>
           {saved.data.recent && <button className="resume-card" type="button" onClick={resumeLast}>
             <span className="mini-label">上次的方案</span>
             <strong>{saved.data.recent.title}</strong>
@@ -433,7 +458,7 @@ export default function App() {
           <div className="hero-stats">
             <span><strong>12</strong> 个策划模块</span>
             <span><strong>{CATEGORIES.length}</strong> 类活动</span>
-            <span><strong>12</strong> 个预设模板</span>
+            <span><strong>{PRESETS.length}</strong> 个预设模板</span>
           </div>
         </div>
         <div className="hero-art" aria-hidden="true"><div className="orbit orbit-one"/><div className="orbit orbit-two"/><div className="art-core">PLAN<br/>IT<br/>WELL<span>✳</span></div><span className="floating f1">✦ 灵感</span><span className="floating f2">⏱ 计划</span><span className="floating f3">↗ 执行</span></div>
@@ -471,6 +496,8 @@ export default function App() {
             onAnswer={answerQuestion}
             onGenerate={generate}
             onClearPreset={clearPresetContent}
+            onFieldStatus={changeFieldStatus}
+            onFieldDecision={decideFieldSuggestion}
             onReset={() => { setStage('intake'); setBrief(null); setPlan(null); setIdea(''); navigateTo('home'); }}
             generating={generating}
             aiSlot={idea ? <AiClarify idea={idea} brief={brief} apiKey={apiKey} onQuestions={(items) => setAiQuestions(items)}/> : undefined}
@@ -493,6 +520,9 @@ export default function App() {
           onPlanMeta={patch=>{const next={...plan,...patch,brief:patch.title!==undefined?{...plan.brief,title:patch.title,sources:{...plan.brief.sources,title:'user' as const}}:plan.brief};setPlan(next);setBrief(next.brief);persist(next,true);}}
           onModuleMeta={(moduleId,patch)=>{const next={...plan,modules:plan.modules.map(module=>module.id===moduleId?{...module,...patch}:module)};setPlan(next);persist(next,true);}}
           onBlockTitle={(moduleId,index,title)=>{const next={...plan,modules:plan.modules.map(module=>module.id===moduleId?{...module,blocks:module.blocks.map((block,i)=>i===index&&block.kind!=='text'?{...block,title}:block)}:module)};setPlan(next);persist(next,true);}}
+          onModeChange={changePlanningMode}
+          onModuleStatus={changeModuleStatus}
+          onAiDecision={decideModuleSuggestion}
           revisionPanel={<>
             {undoPlan?.id === plan.id && <button className="text-button" onClick={undoLastChange}>撤销上次调整（恢复调整前版本）</button>}
             <RevisionBar onRevise={applyRevision}/>

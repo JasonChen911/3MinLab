@@ -1,5 +1,6 @@
 import type { AgendaSegment, BudgetTemplateLine, RiskTemplate, RoleTemplate } from './knowledge';
-import type { GroupId, VenueKind } from '../types';
+import type { GroupId, VenueKind, PlanningMode, ModuleId } from '../types';
+import { EXTRA_PRESETS } from './presets-extra';
 
 /* ============================================================
  * 预设活动模板
@@ -15,6 +16,14 @@ import type { GroupId, VenueKind } from '../types';
 
 export interface ScenarioPreset {
   id: string;
+  scaleType?: 'large' | 'small';
+  complexity?: '轻量' | '标准' | '专业';
+  professionalLevel?: '低' | '中' | '高';
+  peopleRange?: [number, number];
+  planningMode?: PlanningMode;
+  coreModules?: ModuleId[];
+  keywords?: string[];
+  imagePresetId?: string;
   name: string;
   group: GroupId;
   categoryId: string;
@@ -623,6 +632,7 @@ export const PRESETS: ScenarioPreset[] = [
     ],
     highlights: ['年度照片墙', '员工故事短片', '多轮抽奖与家属感谢环节'],
   },
+  ...EXTRA_PRESETS,
 ];
 
 const presetIndex = new Map(PRESETS.map((preset) => [preset.id, preset]));

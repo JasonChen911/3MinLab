@@ -1,4 +1,5 @@
 import {aiRequest} from '../services/AIService';
+import { exportModules } from '../planning/mode';
 import LifecyclePanel from '../lifecycle/LifecyclePanel';
 import {loadPreferences} from '../settings/preferences';
 import SimulationLab from '../simulation/SimulationLab';
@@ -54,11 +55,11 @@ export default function WorkspaceHub({plan,apiKey,children,onPlanChange,onRestor
   const active=getDefinition(activeTool,data);const doc=data.documents.find(item=>item.id===selectedDoc);
   const suggested=recommendedTools(data);const enabled=data.tools.map(id=>getDefinition(id,data)).filter((tool):tool is NonNullable<typeof tool>=>!!tool);
   const taskRows=tableRows(data,'tasks');const completed=taskRows.filter(row=>row.status==='已完成').length;
-  const sourceFor=(document:ActivityDocument)=>document.toolId==='plan'?JSON.stringify(plan.modules):documentSource(data,plan,document.toolId);
+  const sourceFor=(document:ActivityDocument)=>document.toolId==='plan'?JSON.stringify([exportModules(plan),plan.planningMode,plan.moduleStates]):documentSource(data,plan,document.toolId);
   function generateDoc(id:string) {
     const previous=data.documents.find(item=>item.toolId===id);
     if(previous?.manual&&!window.confirm('这份文档有手动编辑，重新生成将覆盖当前内容。继续？'))return;
-    let next=createDocument(data,plan,id);if(id==='plan')next={...next,source:JSON.stringify(plan.modules)};
+    let next=createDocument(data,plan,id);if(id==='plan')next={...next,source:JSON.stringify([exportModules(plan),plan.planningMode,plan.moduleStates])};
     if(previous)next={...next,id:previous.id,createdAt:previous.createdAt,version:previous.version+1};
     commit({...data,documents:previous?data.documents.map(item=>item.id===previous.id?next:item):[...data.documents,next]});setSelectedDoc(next.id);setTab('documents');setAiDraft('');
   }

@@ -70,7 +70,7 @@ describe('界面渲染冒烟测试', () => {
 
   it('首页预设区渲染 10 个分类入口与预设卡片', () => {
     const html = renderToString(<PresetGallery onPreset={noop} onCategory={noop} onCustom={noop}/>);
-    expect(html).toContain('按类型找起点');
+    expect(html).toContain('找一个适合你的活动起点');
     expect(html).toContain('校园教育类');
     expect(html).toContain('自定义活动类');
     expect(html).toContain('新生迎新活动');

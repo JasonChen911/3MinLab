@@ -1,5 +1,6 @@
 import { MODULES } from '../data/taxonomy';
 import { formatMoney } from './budget';
+import { exportModules } from '../planning/mode';
 import type { Block, EventPlan } from '../types';
 
 /* ============================================================
@@ -70,7 +71,7 @@ export function buildPlanMarkdown(plan: EventPlan): string {
     lines.push('');
   }
 
-  for (const module of plan.modules) {
+  for (const module of exportModules(plan)) {
     const meta = MODULES.find((item) => item.id === module.id)!;
     const badge = module.weight === 'key' ? '【重点】' : module.weight === 'brief' ? '【简要】' : '';
     lines.push(`## ${meta.order}. ${module.title}${badge}`, '');

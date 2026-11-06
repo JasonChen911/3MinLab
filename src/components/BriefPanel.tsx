@@ -3,7 +3,8 @@ import type { ReactNode } from 'react';
 import { CATEGORIES, getCategory, GROUPS, VENUES } from '../data/taxonomy';
 import { getPreset } from '../data/presets';
 import { formatDurationLabel } from '../rules/intake';
-import type { BriefFieldKey, BriefQuestion, EventBrief, SourceTag } from '../types';
+import type { BriefFieldKey, BriefQuestion, EventBrief, SourceTag, PlanningStatus } from '../types';
+import './plan-mode.css';
 
 const badgeText: Record<SourceTag, string> = { user: '已填写', inferred: '已识别', assumed: '假设', preset: '预设' };
 
@@ -18,12 +19,14 @@ interface Props {
   onGenerate: () => void;
   onReset: () => void;
   onClearPreset: () => void;
+  onFieldStatus?: (key:BriefFieldKey,status:PlanningStatus,note?:string)=>void;
+  onFieldDecision?: (key:BriefFieldKey,accept:boolean)=>void;
   aiSlot?: ReactNode;
   generating?: boolean;
 }
 
 /** 需求确认面板：字段可直接改，来源明确标注，问题最多三条 */
-export default function BriefPanel({ brief, questions, onChange, onDaysChange, onAnswer, onGenerate, onReset, onClearPreset, aiSlot, generating }: Props) {
+export default function BriefPanel({ brief, questions, onChange, onDaysChange, onAnswer, onGenerate, onReset, onClearPreset, onFieldStatus, onFieldDecision, aiSlot, generating }: Props) {
   const source = (key: BriefFieldKey) => brief.sources[key] ?? 'assumed';
   const preset = getPreset(brief.presetId);
 
@@ -145,6 +148,8 @@ export default function BriefPanel({ brief, questions, onChange, onDaysChange, o
         />
       </label>
     </div>
+
+    {onFieldStatus&&<details className="brief-field-states"><summary>标记已准备或待定的条件</summary><p>状态只记录筹备情况，不会删除已经填写的内容。</p><div>{([['budget','预算'],['venue','场地'],['date','时间'],['audience','参与人群'],['goal','活动目标'],['constraints','补充要求']] as [BriefFieldKey,string][]).map(([key,label])=>{const state=brief.fieldStates?.[key];return <div className="brief-field-state" key={key}><label>{label}<select value={state?.status??'unhandled'} onChange={e=>onFieldStatus(key,e.target.value as PlanningStatus)}><option value="unhandled">未处理</option><option value="self">自行填写</option><option value="existing">已有</option><option value="not-needed">不需要</option><option value="pending">待定</option><option value="ai-suggested">AI 建议</option><option value="confirmed">已确认</option></select></label>{state?.status==='existing'&&<input aria-label={`${label}已有内容说明`} value={state.note??''} placeholder="可选：已有内容" onChange={e=>onFieldStatus(key,'existing',e.target.value)}/>}{state?.status==='ai-suggested'&&<div className="brief-field-ai"><p>{state.aiSuggestion||'正在生成建议…'}</p>{state.aiSuggestion&&<><button onClick={()=>onFieldDecision?.(key,true)}>采纳为参考</button><button onClick={()=>onFieldDecision?.(key,false)}>不采用</button></>}</div>}</div>;})}</div></details>}
 
     {aiSlot}
 

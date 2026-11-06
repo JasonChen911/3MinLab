@@ -1,5 +1,6 @@
 import { knowledgeFor, type FamilyKnowledge, type KnowledgeContext, type RoleTemplate } from '../data/knowledge';
 import { getPreset, type ScenarioPreset } from '../data/presets';
+import { recommendPlanningMode } from '../planning/mode';
 import { FAMILY_TASKS, PHASES, type RoleHint } from '../data/phases';
 import {
   getCategory,
@@ -953,7 +954,14 @@ export function generatePlan(brief: EventBrief): EventPlan {
   const category = getCategory(brief.categoryId);
   const weights = resolveWeights(category);
   const preset = getPreset(brief.presetId);
-  const knowledge = withPreset(knowledgeFor(category.family, category.id), preset);
+  const baseKnowledge = withPreset(knowledgeFor(category.family, category.id), preset);
+  const draft = brief.aiDraft;
+  const knowledge:FamilyKnowledge = draft ? {
+    ...baseKnowledge,
+    agenda: draft.flow.length ? draft.flow.map((name,index)=>({name,share:1/draft.flow.length,detail:`AI 初稿建议环节 ${index+1}；由组织者核对时长和执行方式。`})) : baseKnowledge.agenda,
+    roles: draft.staff.length ? draft.staff.map(role=>({role,fixed:1,perPeople:0,min:1,max:10,duty:'AI 初稿建议岗位，职责待确认'})) : baseKnowledge.roles,
+    resources: draft.materials.length ? draft.materials : baseKnowledge.resources,
+  } : baseKnowledge;
   const scale = scaleOf(brief.people);
   const outdoor = brief.venue === 'outdoor' || brief.venue === 'mixed' || brief.venue === 'stadium';
   const context: KnowledgeContext = {
@@ -1045,6 +1053,7 @@ export function generatePlan(brief: EventBrief): EventPlan {
     id: crypto.randomUUID(),
     createdAt: new Date().toISOString(),
     version: 2,
+    planningMode: brief.planningMode ?? recommendPlanningMode(brief),
     title,
     oneLiner,
     theme: slogan,

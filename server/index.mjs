@@ -3,7 +3,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { join, resolve, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assistWithDeepSeek } from './ai.mjs';
-import { apiKey, aiStatus, configureAI, testAI, runAITask, providerFetch } from './ai-service.mjs';
+import { apiKey, aiStatus, configureAI, testAI, runAITask, createActivityDraft, providerFetch } from './ai-service.mjs';
 import { generateFile, importWorkbook } from './files.mjs';
 import { generateDocumentAI } from './document-ai.mjs';
 import { requestAdjustment } from './assistant-ai.mjs';
@@ -42,10 +42,10 @@ const server = createServer(async (req, res) => {
       return send(res, 403, { error: '来源不受支持' });
     }
     if(pathname==='/api/ai/config'&&req.method==='GET')return send(res,200,aiStatus());
-    if(['/api/ai/config','/api/ai/test','/api/ai/task'].includes(pathname)&&req.method==='POST') {
+    if(['/api/ai/config','/api/ai/test','/api/ai/task','/api/ai/activity-draft'].includes(pathname)&&req.method==='POST') {
       try {if(!['127.0.0.1','::1','::ffff:127.0.0.1'].includes(req.socket.remoteAddress))return send(res,403,{error:'配置与智能分析只允许本机访问'});
         if(!req.headers['content-type']?.startsWith('application/json'))return send(res,415,{error:'需要 JSON 请求'});
-        const input=await readJson(req);return send(res,200,pathname==='/api/ai/config'?configureAI(input):pathname==='/api/ai/test'?await testAI(controller.signal):await runAITask(input,controller.signal));
+        const input=await readJson(req);return send(res,200,pathname==='/api/ai/config'?configureAI(input):pathname==='/api/ai/test'?await testAI(controller.signal):pathname==='/api/ai/activity-draft'?await createActivityDraft(input,controller.signal):await runAITask(input,controller.signal));
       }catch(error){return send(res,400,{error:error.message});}
     }
     if (pathname === '/api/files/export' && req.method === 'POST') {

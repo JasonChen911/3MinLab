@@ -26,6 +26,9 @@ export type ModuleId =
 
 /** 模块权重：key = 本类活动的策划重点，normal = 常规，brief = 简要带过 */
 export type Weight = 'key' | 'normal' | 'brief';
+export type PlanningMode = 'full' | 'light';
+export type PlanningStatus = 'unhandled' | 'self' | 'existing' | 'not-needed' | 'pending' | 'ai-suggested' | 'confirmed';
+export interface PlanningModuleState { status: PlanningStatus; note?: string; aiSuggestion?: string; confirmed?: boolean; updatedAt: string }
 
 /** 字段来源，界面据此显示"已识别 / 推测 / 预设 / 假设" */
 export type SourceTag = 'user' | 'inferred' | 'assumed' | 'preset';
@@ -102,6 +105,10 @@ export interface Assumption {
 export interface EventBrief {
   /** 用户原始想法，保留原文便于回溯 */
   idea: string;
+  /** 可切换的策划展示模式，缺省沿用完整模式以兼容旧项目 */
+  planningMode?: PlanningMode;
+  fieldStates?: Partial<Record<BriefFieldKey, PlanningModuleState>>;
+  aiDraft?: { flow: string[]; staff: string[]; materials: string[]; features: string[]; questions: string[] };
   title: string;
   categoryId: string;
   family: FamilyId;
@@ -257,6 +264,8 @@ export interface EventPlan {
   id: string;
   createdAt: string;
   version: 2;
+  planningMode?: PlanningMode;
+  moduleStates?: Partial<Record<ModuleId, PlanningModuleState>>;
   title: string;
   oneLiner: string;
   theme: string;
