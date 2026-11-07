@@ -10,6 +10,8 @@ import { recommendPlanningMode } from './planning/mode';
 import { setModuleStatus } from './planning/mode';
 import { aiRequest } from './services/AIService';
 import { PRESETS } from './data/presets';
+import {publishGameBridge,readGameResults} from './integration/gameBridge';
+import './integration/game.css';
 import HistoryPanel from './components/HistoryPanel';
 import SettingsPanel from './components/SettingsPanel';
 import { AiClarify, AiModuleAssist } from './components/AiAssist';
@@ -71,6 +73,7 @@ export default function App() {
   const [undoPlan, setUndoPlan] = useState<EventPlan | null>(null);
   const ideaRef = useRef<HTMLTextAreaElement>(null);
   const [projectId,setProjectId]=useState(() => window.location.hash.split('/')[1] || saved.data.recent?.id || '');
+  const [showGameResults,setShowGameResults]=useState(false);
   const [projectSaveStatus,setProjectSaveStatus]=useState('');
   const [storageReady,setStorageReady]=useState(false);
   const restoringProject=useRef(false);
@@ -148,6 +151,7 @@ export default function App() {
     setScreen(next);
     window.scrollTo(0, 0);
   }
+  async function openGame(activityId?:string){try{await publishGameBridge();window.location.assign(`/play3d/index.html#${activityId?`import/${activityId}`:'start'}`);}catch(error){announce(error instanceof Error?error.message:'游戏数据准备失败');}}
 
   function startPlanning(text: string) {
     const trimmed = text.trim();
@@ -423,6 +427,7 @@ export default function App() {
       <button className="mobile-menu-toggle" aria-label={mobileMenu?'关闭导航菜单':'打开导航菜单'} aria-expanded={mobileMenu} aria-controls="main-actions" onClick={()=>setMobileMenu(!mobileMenu)}>{mobileMenu?<X size={22}/>:<Menu size={22}/>}</button>
       <div id="main-actions" className={`top-right ${mobileMenu?'mobile-open':''}`} onClick={()=>setMobileMenu(false)}>
         <button className="project-list-link" onClick={() => navigateTo('projects')}>我的活动</button>
+        <button className="project-list-link" onClick={() => void openGame()}>3D 世界</button>
         <span className="tag">GENERAL EVENT PLANNER</span>
         <button className="settings-trigger" onClick={() => navigateTo('settings')}>
           <Settings size={17}/> 设置{apiKey ? <span className="settings-dot" aria-label="已设置 API Key"/> : null}
@@ -449,6 +454,7 @@ export default function App() {
             {EXAMPLES.map((example) => <button key={example} type="button" onClick={() => {setIdea(example);ideaRef.current?.focus();}}>{example}</button>)}
           </div>
           <a className="hero-preset-link" href="#presets">没有头绪？浏览活动模板 ↓</a>
+          <button className="game-home-entry" type="button" onClick={()=>void openGame()}><strong>3D 活动模拟游戏</strong><span>搭建场地、配置人员，观察活动如何运行</span><b>进入 3D 世界 →</b></button>
           {saved.data.recent && <button className="resume-card" type="button" onClick={resumeLast}>
             <span className="mini-label">上次的方案</span>
             <strong>{saved.data.recent.title}</strong>
@@ -475,7 +481,8 @@ export default function App() {
 
       {screen === 'workspace' && !storageReady && <div className="project-page panel" role="status">正在恢复活动项目…</div>}
       {screen === 'workspace' && storageReady && <section id="workspace" className="workspace">
-        <div className="draft-save-strip"><button onClick={() => navigateTo('projects')}>返回我的活动</button><button onClick={() => void saveCurrentProject(true)} disabled={!brief || !projectId}>保存活动</button><span role="status">{projectSaveStatus}</span></div>
+        <div className="draft-save-strip"><button onClick={() => navigateTo('projects')}>返回我的活动</button><button onClick={() => void saveCurrentProject(true)} disabled={!brief || !projectId}>保存活动</button>{plan&&<><button onClick={()=>void openGame(plan.id)}>进入 3D 模拟</button><button onClick={()=>setShowGameResults(v=>!v)}>模拟记录（{readGameResults(plan.id).length}）</button></>}<span role="status">{projectSaveStatus}</span></div>
+        {plan&&showGameResults&&<section className="game-results"><h2>3D 模拟记录</h2>{readGameResults(plan.id).map(run=><article key={run.simulationId}><strong>{new Date(run.at).toLocaleString('zh-CN')}</strong><span>到场 {run.attendance} 人 · 模拟支出 ¥{run.budgetUsed} · 与原预算差额 {run.budgetVariance>=0?'+':''}¥{run.budgetVariance} · 满意度 {Math.round(run.satisfaction)}</span><small>延误 {run.delay} 分钟 · 事件 {run.incidents.length} 项 · 完成任务 {run.completedTasks.length} 项</small></article>)}{!readGameResults(plan.id).length&&<p>尚无完成的 3D 模拟。</p>}</section>}
         <div className={`workspace-head ${stage === 'plan' ? 'workspace-head-compact' : ''}`}>
           <div>
             <button className="workspace-back" onClick={() => navigateTo('home')}><ArrowLeft size={16}/> 返回首页</button>

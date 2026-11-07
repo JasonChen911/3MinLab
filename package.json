@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "build": "tsc -b && vite build",
+    "postinstall": "npm --prefix game install",
+    "build": "npm --prefix game run build && tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "test": "vitest run src && node --test server/*.test.mjs",
     "start": "node --env-file-if-exists=.env.local server/index.mjs",
