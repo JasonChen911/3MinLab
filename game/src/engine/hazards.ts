@@ -1,6 +1,7 @@
 import type {Incident, RiskKind, SimulationState} from './model';
 import type {Random} from './random';
 import {difficultyProfile} from '../difficulty';
+import {charge} from './money';
 
 /** Shared hazard recorder: legacy Poisson hazards and the Event Director both use it. */
 export function addIncident(s: SimulationState, kind: RiskKind, r: Random) {
@@ -15,7 +16,7 @@ export function addIncident(s: SimulationState, kind: RiskKind, r: Random) {
   };
   const incident: Incident = {id: s.incidents.length + 1, kind, at: s.minute, until: s.minute + duration, severity, cost, message: messages[kind]};
   s.incidents.push(incident);
-  s.extraSpend += cost;
+  if (cost) charge(s, {at: s.minute, title: `${messages[kind]}处理费用`, amount: cost, category: 'incident', sourceId: String(incident.id)});
   if (kind === 'traffic') s.arrivals = s.arrivals.map((t, i) => i >= s.arrived ? t + duration : t);
   return incident;
 }

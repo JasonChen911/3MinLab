@@ -455,9 +455,9 @@ export function createPerson(shirt: number, pants: number, skin = 0xe6c2a4, hair
   return {group, leftArm, rightArm, leftLeg, rightLeg, torso};
 }
 
-export function animatePerson(rig: PersonRig, time: number, moving: boolean, speed = 1) {
+export function animatePerson(rig: PersonRig, time: number, moving: boolean, speed = 1, pose: 'normal' | 'seated' | 'resting' | 'performing' | 'running' = 'normal') {
   const phase = time * 8 * Math.max(.5, speed);
-  const amount = moving ? .62 : .06;
+  const amount = pose === 'running' ? .95 : moving ? .62 : .06;
   const swing = Math.sin(phase) * amount;
   rig.leftLeg.rotation.x = swing;
   rig.rightLeg.rotation.x = -swing;
@@ -467,6 +467,17 @@ export function animatePerson(rig: PersonRig, time: number, moving: boolean, spe
   rig.rightArm.rotation.z = -.08;
   const bob = moving ? Math.abs(Math.sin(phase)) * .045 : Math.sin(time * 2) * .01;
   rig.torso.position.y = 1.02 + bob;
+  if (pose === 'seated' || pose === 'resting') {
+    rig.leftLeg.rotation.x = pose === 'seated' ? -1.2 : -.25;
+    rig.rightLeg.rotation.x = pose === 'seated' ? -1.2 : -.25;
+    rig.leftArm.rotation.x = pose === 'seated' ? -.2 : .12;
+    rig.rightArm.rotation.x = pose === 'seated' ? -.2 : .12;
+    rig.torso.position.y = 1.02;
+  } else if (pose === 'performing') {
+    rig.leftArm.rotation.z = .55 + Math.sin(time * 3) * .28;
+    rig.rightArm.rotation.z = -.55 - Math.sin(time * 3 + 1) * .28;
+    rig.torso.position.y = 1.02 + Math.abs(Math.sin(time * 3)) * .055;
+  }
 }
 
 export interface CarRig {

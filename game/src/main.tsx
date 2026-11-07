@@ -24,9 +24,9 @@ import {
 import type {ChallengeConfig, ChallengeGoal, ChallengeMetric, ChallengeOperator} from './engine/model';
 import {
   REPLAY_STATE_GROUPS, buildReplayExport, logReplay, logWeatherChange, replayEventKindLabel,
-  replayFrameAt, replaySpotForDirectorKind, replayWeatherAt,
+  replayFrameAt, replaySpotForDirectorKind, replayWeatherAt, timelineTone,
 } from './engine/replay';
-import type {ReplayFrame, ReplayLogEntry, ReplaySpot} from './engine/model';
+import type {MoneyTransaction, ReplayFrame, ReplayLogEntry, ReplaySpot} from './engine/model';
 import {clearDraft, clearVersions, loadAll, loadDraft, loadVersions, pushVersion, saveDraft, saveOne, type HistoryVersion} from './storage';
 import {awardActivity, levelProgress, loadProfile, saveProfile, syncUnlocks, type PlayerProfile} from './progression';
 import {
@@ -446,6 +446,9 @@ function App() {
   const [running, setRunning] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [eventsOpen, setEventsOpen] = useState(false);
+  const [moneyOpen, setMoneyOpen] = useState(false);
+  const [timelineFilter, setTimelineFilter] = useState<'all' | NonNullable<ReplayLogEntry['tone']>>('all');
+  const [timelineSelected, setTimelineSelected] = useState<number | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [challengeOpen, setChallengeOpen] = useState(false);
   const [challengeDraft, setChallengeDraft] = useState<ChallengeConfig>(() => defaultChallenge());
@@ -508,12 +511,14 @@ function App() {
   const warnings = issues(layout);
   const facility = state?.snapshot.facility ?? analyzeFacilities(layout, CATALOG);
   const alerts = directorWarnings(state);
-  const directorEvents = state?.director?.events ?? [];
   const activeDirectorEvents = directorActiveEvents(state);
   const satisfaction = Math.round(state?.satisfaction ?? 70);
   const challenge = layout.challenge;
   const challengeResult = state?.challenge;
-  const eventCount = (state?.incidents.length ?? 0) + directorEvents.length;
+  const eventCount = state?.replay?.events.length ?? 0;
+  const timelineEvents = (state?.replay?.events ?? []).filter(entry => timelineFilter === 'all' || timelineTone(entry) === timelineFilter);
+  const facilityTransactions: MoneyTransaction[] = layout.items.filter(item => itemCost(item) > 0).map(item => ({id: `facility:${item.id}`, at: 0, title: CATALOG[item.kind].name, amount: itemCost(item), category: 'facility', sourceId: item.id}));
+  const moneyTransactions = [...facilityTransactions, ...(state?.transactions ?? (state?.extraSpend ? [{id:'incident:legacy',at:state.minute,title:'旧存档应急支出汇总',amount:state.extraSpend,category:'incident' as const,sourceId:'legacy'}] : []))];
   const replayMax = state?.replay?.frames.at(-1)?.t ?? state?.minute ?? 0;
   const replayFrame: ReplayFrame | null = replay ? replayFrameAt(state?.replay, replay.minute) : null;
   const replayEvents: ReplayLogEntry[] = state?.replay?.events ?? [];
@@ -1010,6 +1015,7 @@ function App() {
       setReplay(null); setRestorePeople(null);
       clearDraft(); setDraft(null);
       setState(next); setRunning(true); setMode('simulate'); setTool('select'); setPlace(null);
+      setEventsOpen(true); setTimelineSelected(null);
       setLayout(prev => ({...prev, run: next, people: undefined}));
       setLastReward(null);
       persist({...target, run: next, people: undefined}, target.challenge ? `开始挑战：${target.challenge.name}` : '开始模拟');
@@ -1022,13 +1028,20 @@ function App() {
   };
   const pause = () => {
     setRunning(false);
-    if (state) persist({...layout, run: state, people: snapshotPeople() ?? layout.people}, '暂停');
+    if (state) {
+      const next=structuredClone(state);
+      logReplay(next,{at:next.minute,kind:'action',title:'暂停活动模拟',detail:'现场状态已暂停，组织者可查看记录或调整场地。',location:'venue'});
+      setState(next);
+      persist({...layout, run: next, people: snapshotPeople() ?? layout.people}, '暂停');
+    }
     setMessage('模拟已暂停：人物、时钟与随机事件停止，可继续观察或用“暂停并编辑”调整场地。');
   };
   const resume = () => {
     if (replayRef.current) exitReplay();
     if (!state || state.status === 'finished') { startRun(); return; }
-    setState(reconcile(state, layout));
+    const next=reconcile(state, layout);
+    logReplay(next,{at:next.minute,kind:'action',title:'继续活动模拟',detail:'继续执行当前活动流程。',location:'venue'});
+    setState(next);
     setMode('simulate'); setTool('select'); setPlace(null); setRunning(true);
     awardPending.current = true;
     setMessage('已继续模拟，进度与突发事件保留；路径、目标与事件已重新校验。');
@@ -1036,7 +1049,7 @@ function App() {
   const pauseAndEdit = () => {
     if (replayRef.current) exitReplay();
     setRunning(false);
-    if (settings.autosave) persist({...layout, run: state ?? layout.run, people: snapshotPeople()}, '暂停并编辑');
+    if(state){const next=structuredClone(state);logReplay(next,{at:next.minute,kind:'action',title:'暂停并编辑场地',detail:'组织者返回建造模式调整设施。',location:'venue'});setState(next);if(settings.autosave)persist({...layout,run:next,people:snapshotPeople()},'暂停并编辑');}
     setLayout(prev => ({...prev, people: undefined}));
     setMode('build'); setTool('select'); setPlace(null);
     setMessage('已暂停，设施恢复可编辑；继续时会重新校验路径、目标与事件。');
@@ -1054,7 +1067,7 @@ function App() {
   const act = (kind: Intervention) => {
     if (!state) return;
     try {
-      const next = intervene(state, kind);
+      const next = intervene(state, kind, budgetMode);
       setState(next);
       setLayout(prev => ({...prev, run: next}));
       persist({...layout, run: next, people: snapshotPeople()}, `应对：${actions.find(a => a.kind === kind)?.label ?? kind}`);
@@ -2086,7 +2099,7 @@ function App() {
           </div>
         </div> : <>
         {alerts[0] && <div className="v3-alert" role="alert">
-          <div><b>导演预警 · {alerts[0].title}</b><span>{alerts[0].reason}</span></div>
+          <div><b>现场预警 · {alerts[0].title}</b><span>{alerts[0].reason}</span></div>
           <em>{Math.max(0, alerts[0].activeAt - (state?.minute ?? 0))} 分钟后可能发生</em>
           {alerts[0].mitigation && <button onClick={() => alerts[0].mitigation && act(alerts[0].mitigation)}>{DIRECTOR_MITIGATION_LABELS[alerts[0].mitigation]}</button>}
         </div>}
@@ -2096,6 +2109,9 @@ function App() {
             <span>到场 <b>{state?.arrived ?? 0}</b></span>
             <span>签到 <b>{state?.served ?? 0}</b></span>
             <span>排队 <b>{state?.queue ?? 0}</b></span>
+            <span className={(state?.facilities?.toiletQueue ?? 0) >= 8 ? 'warn' : ''}>卫生间 <b>{state?.facilities?.toiletQueue ?? 0}</b></span>
+            <span className={(state?.facilities?.vendorQueue ?? 0) >= 8 ? 'warn' : ''}>摊位 <b>{state?.facilities?.vendorQueue ?? 0}</b></span>
+            <span>可轮休 <b>{state?.facilities?.restingStaff ?? 0}</b></span>
             <span className={satisfaction < 45 ? 'warn' : ''}>满意 <b>{satisfaction}</b></span>
             <span className={alerts.length ? 'warn' : ''}>预警 <b>{alerts.length}</b></span>
             {challengeResult && <span className={challengeResult.failed ? 'warn' : ''}>目标 <b>{challengeResult.met}/{challengeResult.total}</b></span>}
@@ -2113,40 +2129,30 @@ function App() {
             <button onClick={resetSim}>重置</button>
             <button onClick={saveNow}>保存</button>
             <button disabled={!state || !state.replay?.frames.length} title="回放本次模拟的逐分钟快照与事件日志" onClick={beginReplay}>回放</button>
-            <button className={eventsOpen ? 'active' : ''} onClick={() => setEventsOpen(v => !v)}>现场事件 {eventCount}</button>
+            <button className={eventsOpen ? 'active' : ''} onClick={() => setEventsOpen(v => !v)}>事件时间线 {eventCount}</button>
+            <button className={moneyOpen ? 'active' : ''} onClick={() => setMoneyOpen(v => !v)}>资金明细 {moneyTransactions.length}</button>
             <label className="v3-check"><input type="checkbox" checked={settings.sound} onChange={e => patchSettings({sound: e.target.checked})}/>声音</label>
           </div>
         </div>
         <div className="v3-timeline"><i style={{width: `${visibleProgress}%`}}/><em>{Math.round(visibleProgress)}%</em></div>
-        {eventsOpen && <div className="v3-events">
-          <div className="v3-director">
-            <div className="v3-director-head">
-              <b>事件导演 · 每 5 分钟评估</b>
-              <span>风险 {Math.round((state?.director?.metrics?.risk ?? 0) * 100)}/100 · 满意度 {satisfaction}/100 · 排队 {state?.queue ?? 0} 人</span>
-            </div>
-            {alerts.map(event => <article key={event.id} className="v3-director-event warning">
-              <div><em>预警 {Math.max(0, event.activeAt - (state?.minute ?? 0))}′</em><b>{event.title}</b><span>风险 {Math.round(event.risk * 100)}</span></div>
-              <p>{event.reason}</p>
-              <small>因果链：{event.chain.join(' → ')}</small>
-              <div className="v3-event-effects">{event.effects.map(effect => <span key={effect}>{effect}</span>)}</div>
-              {event.mitigation && <button className="v3-primary" onClick={() => event.mitigation && act(event.mitigation)}>{DIRECTOR_MITIGATION_LABELS[event.mitigation]} · 预警期内化解</button>}
-            </article>)}
-            {activeDirectorEvents.map(event => <article key={event.id} className="v3-director-event active">
-              <div><em>进行中 · 剩余 {Math.max(0, event.until - (state?.minute ?? 0))}′</em><b>{event.title}</b><span>严重度 {event.severity}</span></div>
-              <p>{event.reason}</p>
-              <small>因果链：{event.chain.join(' → ')}</small>
-              <div className="v3-event-effects">{event.effects.map(effect => <span key={effect}>{effect}</span>)}</div>
-              {event.mitigation && <button onClick={() => event.mitigation && act(event.mitigation)}>{DIRECTOR_MITIGATION_LABELS[event.mitigation]}</button>}
-            </article>)}
-            {directorEvents.filter(event => event.status === 'resolved' || event.status === 'prevented').slice(-4).reverse().map(event => <p key={event.id} className={'v3-director-history ' + event.status}>
-              <b>{event.at}′ · {event.title}</b> · {event.status === 'prevented' ? '已化解' : '已结束'} · {event.resolution}
-            </p>)}
-            {!directorEvents.length && <p className="v3-empty">导演正在监控队列、容量、满意度、天气、设备与人力，暂无事件。</p>}
-          </div>
-          <div className="v3-log">
-            <b>基础风险抽样</b>
-            {state?.incidents.length ? state.incidents.slice(-4).map(e => <p key={e.id}>{e.at} 分 · {e.message}</p>) : <p>暂无随机故障。</p>}
-          </div>
+        {moneyOpen && <section className="v7-money" aria-label="资金明细">
+          <header><b>资金使用记录</b><span>{budgetMode === 'unlimited' ? '无限资金 · 费用照常记录' : '预算挑战 · 应对受余额限制'}</span></header>
+          <div className="v7-money-stats"><span>活动预算 <b>{money(layout.activity.budget)}</b></span><span>设施配置 <b>{money(used)}</b></span><span>应急支出 <b>{money(state?.extraSpend ?? 0)}</b></span><span>剩余 <b>{money(Math.max(0,layout.activity.budget-used-(state?.extraSpend ?? 0)))}</b></span><span>超额 <b>{money(Math.max(0,used+(state?.extraSpend ?? 0)-layout.activity.budget))}</b></span></div>
+          <small>设施金额来自当前配置；应急金额来自模拟交易。未配置的人力、场地、餐饮与宣传费用不计入已支出。</small>
+          <div className="v7-money-list">{moneyTransactions.map(entry => <button key={entry.id} onClick={() => {if(entry.eventId){setEventsOpen(true);setTimelineSelected(entry.eventId)}else if(entry.category==='facility'){setSelected(entry.sourceId);setPanelOpen(true)}}}>
+            <span>{entry.category === 'facility' ? '配置' : `${entry.at}′`}</span><b>{entry.title}</b><em>{entry.category === 'facility' ? '设施' : entry.category === 'action' ? '应对' : '事件'}</em><strong>{money(entry.amount)}</strong>
+          </button>)}{!moneyTransactions.length && <p>尚无设施或应急交易。</p>}</div>
+        </section>}
+        {eventsOpen && <>
+          <section className="v7-event-stream" aria-label="活动事件时间线">
+            <header><b>活动时间线</b><span>最近事件优先，点击查看详情与定位</span></header>
+            <div className="v7-event-filters">{([['all','全部'],['positive','顺利'],['negative','问题'],['progress','进程'],['warning','预警'],['action','操作'],['info','信息']] as const).map(([key,label]) => <button key={key} className={timelineFilter===key?'active':''} onClick={() => setTimelineFilter(key)}>{label}</button>)}</div>
+            <div className="v7-event-list">{[...timelineEvents].reverse().map(entry => {const tone=timelineTone(entry),expanded=timelineSelected===entry.id,related=entry.directorId===undefined?[]:(state?.replay?.events??[]).filter(other=>other.id!==entry.id&&other.directorId===entry.directorId);return <article key={entry.id} className={`v7-event ${tone}`}>
+              <button className="v7-event-summary" onClick={() => setTimelineSelected(expanded?null:entry.id)} aria-expanded={expanded}><time>{entry.at}′</time><span className="v7-event-marker" aria-hidden="true">{{positive:'✓',negative:'!',progress:'▶',warning:'⚠',action:'◆',info:'i'}[tone]}</span><b>{entry.title}</b><em>{{positive:'顺利',negative:'问题',progress:'进程',warning:'预警',action:'操作',info:'信息'}[tone]}</em></button>
+              {expanded && <div className="v7-event-detail"><p>{entry.detail}</p><span>位置：{{entrance:'入口',checkin:'签到区',queue:'排队区',stage:'主舞台',rest:'休息区',medical:'医疗点',venue:'活动场地',field:'户外区域'}[entry.location??'venue']}</span>{entry.directorId!==undefined&&<span>处理状态：{{warning:'预警中',active:'进行中',resolved:'已结束',prevented:'已化解'}[state?.director?.events.find(event=>event.id===entry.directorId)?.status??'resolved']}</span>}{entry.reason&&<span>原因：{entry.reason}</span>}{entry.effects?.length?<span>影响：{entry.effects.join('；')}</span>:null}{entry.chain?.length?<span>发展：{entry.chain.join(' → ')}</span>:null}{related.length>0&&<span>关联：{related.map(item=>`${item.at}′ ${item.title}`).join('；')}</span>}{entry.cost?<span>费用：{money(entry.cost)}</span>:null}<button onClick={() => focusReplaySpot(entry.location)}>定位现场</button></div>}
+            </article>})}{!timelineEvents.length&&<p>当前筛选下暂无事件。</p>}</div>
+          </section>
+          <div className="v3-events">
           <div className="v3-interventions">
             <b>应对措施</b>
             <div>{actions.map(a => <button key={a.kind} disabled={!state || state.status === 'finished'} onClick={() => act(a.kind)}>{a.label}</button>)}</div>
@@ -2187,7 +2193,7 @@ function App() {
               </div> : <small>该局奖励已在完成时结算；读取旧存档不会重复发放。</small>}
             </div>}
           </div>}
-        </div>}
+          </div></>}
         </>}
       </section>}
     </div>

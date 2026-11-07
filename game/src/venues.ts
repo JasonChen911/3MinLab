@@ -39,20 +39,20 @@ const uid = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.r
 const item = (kind: Kind, x: number, z: number, rotation = 0, extra: Partial<Item> = {}): Item => ({id: uid(), kind, x, z, rotation, height: 1, scale: 1, ...extra});
 
 function stadiumItems(size: number): Item[] {
-  const h = size / 2, row = Math.min(.24, 10 / size), side = Math.min(.42, 18 / size);
+  const h = size / 2, row = .36, side = Math.min(.42, 18 / size);
   const seating = size <= 50 ? 1.5 : size <= 80 ? 2 : 2.6;
   const ceremony = size <= 50 ? 1.2 : size <= 80 ? 1.35 : 1.5;
   return [
     item('entrance', -h + 5, h - 2), item('entrance', h - 5, h - 2),
     item('checkin', 0, h - 5.5), item('checkinSmall', -8, h - 5.5),
     item('stageSmall', 0, -h + 5.5, 0, {scale: ceremony}),
-    item('bleachers', -size * row, -size * .08, -90, {scale: seating}),
-    item('bleachers', size * row, -size * .08, 90, {scale: seating}),
-    item('bleachers', 0, -size * .28, 180, {scale: seating}),
+    item('bleachers', -size * row, -size * .14, -90, {scale: seating}),
+    item('bleachers', size * row, -size * .14, 90, {scale: seating}),
+    item('bleachers', size * row, size * .14, 90, {scale: seating}),
     item('medical', -h + 4, 0), item('storage', h - 4, -h + 4),
     item('rest', h - 4, 0), item('service', 0, h - 9.5),
     item('fence', -size * side, 0, 90), item('fence', size * side, 0, 90),
-    item('tree', -h + 3, -h + 3), item('tree', h - 3, -h + 3),
+    item('tree', -h + 3, -h + 3), item('tree', h - 3, -h + 12),
   ];
 }
 

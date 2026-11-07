@@ -4,6 +4,7 @@ import {ROLE_LABELS, bounds, type Item, type Layout, type PersonSave, type Role,
 import {animatePerson, createPerson, type PersonRig} from './models';
 import {blockedAt, layoutColliders, moveWithCollision, nearestMovable, type Collider} from './collision';
 import {weatherProfile} from './weather';
+import {trackPoint} from './track';
 import {Random} from '../engine/random';
 import {
   decideNeed, initialMood, initialNeeds, isOnDuty, personalityFor, queueTolerance, stepNeeds, updateMood,
@@ -1136,6 +1137,19 @@ export class PeopleSystem {
 
   private updateAgent(agent: Agent, dt: number, positions: THREE.Vector3[]) {
     if (agent.pushCooldown > 0) agent.pushCooldown -= dt;
+    const race = agent.role === 'performer' && this.layout?.activity.scene === 'athletics'
+      && this.state?.tasks.find(task => task.status === '进行中' && /比赛|赛跑|短跑|长跑|接力/.test(task.name));
+    if (race && this.layout) {
+      const outer = this.layout.size * .29, inner = outer - Math.min(5, this.layout.size * .1);
+      const lane = (agent.serial - 1) % 4;
+      const radius = inner + (outer - inner) * (lane + .5) / 4;
+      const point = trackPoint(radius, this.layout.size * .15, (this.elapsed * (.018 + lane * .0018) + lane * .025) % 1);
+      agent.state = 'performing'; agent.task = race.name; agent.path = []; agent.goalLabel = `第 ${lane + 1} 跑道`;
+      agent.rig.group.position.set(point.x, 0, point.z);
+      agent.rig.group.rotation.y = point.heading;
+      animatePerson(agent.rig, this.elapsed + agent.seed, true, 1.7, 'running');
+      return;
+    }
     this.updateNeeds(agent, dt);
     const group = agent.rig.group;
     const beforeX = group.position.x, beforeZ = group.position.z;
@@ -1170,7 +1184,7 @@ export class PeopleSystem {
           this.returnFromNeed(agent);
         }
       }
-      animatePerson(agent.rig, this.elapsed + agent.seed, false);
+      animatePerson(agent.rig, this.elapsed + agent.seed, false, 1, seated ? 'seated' : 'resting');
       return;
     }
     group.position.y = 0;
@@ -1269,7 +1283,7 @@ export class PeopleSystem {
       agent.task = this.taskFor(agent.role, agent.state);
       agent.intent = '排队等待签到';
     }
-    animatePerson(agent.rig, this.elapsed + agent.seed, false);
+    animatePerson(agent.rig, this.elapsed + agent.seed, false, 1, agent.state === 'performing' ? 'performing' : 'normal');
   }
 
   private separate(dt: number) {

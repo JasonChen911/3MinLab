@@ -51,6 +51,7 @@ export interface DirectorEventImpact {
   satisfactionOnActivation?: number;
   budgetCost?: number;
   addIncident?: RiskKind;
+  pauseTaskId?: string;
 }
 export interface DirectorEvent {
   id: number; kind: DirectorEventKind; title: string; status: DirectorEventStatus;
@@ -75,6 +76,17 @@ export interface ReplayLogEntry {
   id: number; at: number; kind: ReplayEventKind; title: string; detail: string;
   severity?: number; directorId?: number; location?: ReplaySpot; cost?: number;
   reason?: string; chain?: string[]; effects?: string[]; weather?: string; dedupe?: string;
+  tone?: 'positive' | 'negative' | 'progress' | 'warning' | 'action' | 'info';
+  status?: string; relatedId?: number;
+}
+export interface MoneyTransaction {
+  id: string; at: number; title: string; amount: number;
+  category: 'facility' | 'incident' | 'action' | 'program' | 'refund';
+  sourceId: string; eventId?: number;
+}
+export interface FacilityRuntime {
+  toiletQueue: number; vendorQueue: number; toiletServed: number; vendorServed: number;
+  restingStaff: number; toiletCongested: boolean; vendorCongested: boolean;
 }
 export interface ReplayFrame {
   t: number; arrived: number; served: number; departed: number; queue: number; peakQueue: number;
@@ -83,6 +95,7 @@ export interface ReplayFrame {
   comfort: number; atmosphere: number; progress: number; tasksDone: number; tasksTotal: number;
   activeEvents: number[]; warningEvents: number[]; incidents: number[];
   weatherClosed: boolean; equipmentDown: boolean; supplyDown: boolean;
+  toiletQueue?: number; vendorQueue?: number; restingStaff?: number;
 }
 export interface ReplayState { schema: 1; frames: ReplayFrame[]; events: ReplayLogEntry[]; serial: number; }
 export interface SimulationState {
@@ -93,6 +106,8 @@ export interface SimulationState {
   incidents: Incident[]; actions: Action[]; trace: {time:number;queue:number;delay:number;cost:number}[];
   transfers:{at:number;kind:'arrival'|'admission'|'exit';count:number}[]; attendanceTotal: number; missingStaff: number; timeout: boolean;
   satisfaction?: number; director?: DirectorState; replay?: ReplayState; challenge?: ChallengeResult;
+  transactions?: MoneyTransaction[];
+  facilities?: FacilityRuntime;
 }
 export interface RunRecord { id: string; savedAt: string; state: SimulationState; }
 export const defaults: Parameters = {seed:20261105, attendance:.92,late:.15,absence:.05,arrivalSpread:35, serviceRate:1.2,durationCV:.18,equipmentRate:.16,weatherRate:.12,trafficRate:.12,supplyRate:.08,priceRate:.06,repairMean:18,staff:12,checkinStaff:3,capacity:200,spare:1,budget:10000,source:'系统演示假设',sourceNote:''};

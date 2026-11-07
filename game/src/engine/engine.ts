@@ -6,6 +6,8 @@ import { SCENARIO_MODELS } from './scenarios';
 import { addIncident } from './hazards';
 import { advanceDirector, directorDepartureFactor, directorServiceFactor, initialDirector, initialSatisfaction, preventDirectorWarnings, syncDirectorMetrics } from './director';
 import { logReplay, recordReplayFrame, replaySpotForAction } from './replay';
+import {charge} from './money';
+import {advanceFacilities} from './facilityRuntime';
 import { evaluateChallenge } from '../challenge';
 import { difficultyProfile } from '../difficulty';
 
@@ -30,7 +32,7 @@ export function createSimulation(snapshot:Snapshot,parameters:Parameters):Simula
   for(let i=0;i<s.people;i++)if(r.bernoulli(p.attendance)) {const late=r.bernoulli(p.late);arrivals.push(Math.max(0,Math.round(late?r.lognormal(p.arrivalSpread, .65):p.arrivalSpread/3+r.normal()*p.arrivalSpread/5)));}
   arrivals.sort((a,b)=>a-b);const missing=r.binomial(p.staff,p.absence);
   const tasks=s.tasks.map(t=>({...t,remaining:Math.max(1,Math.round(r.lognormal(t.duration,p.durationCV))),status:'等待' as const}));
-  const incidents:Incident[]=missing?[{id:1,kind:'absence',at:0,until:1e9,severity:missing,cost:0,message:`${missing} 名工作人员缺席，按伯努利模型抽样`}]:[];
+  const incidents:Incident[]=missing?[{id:1,kind:'absence',at:0,until:1e9,severity:missing,cost:0,message:`${missing} 名工作人员临时缺席`}]:[];
   const state:SimulationState={schema:1,snapshot:s,parameters:p,rng:r.state,minute:0,status:'ready',tasks,arrivals,transfers:[],attendanceTotal:arrivals.length,arrived:0,served:0,departed:0,queue:0,availableStaff:p.staff-missing,missingStaff:missing,assignedStaff:0,equipmentDown:false,weatherClosed:false,supplyDown:false,sheltered:false,usedSpare:0,baseSpend:0,extraSpend:0,delay:0,peakQueue:0,queuePersonMinutes:0,incidents,actions:[],trace:[],timeout:false};
   const difficulty = difficultyProfile(s.difficulty);
   state.satisfaction=Math.max(0,Math.min(100,initialSatisfaction(s.facility)+difficulty.satisfactionBias));
@@ -38,7 +40,8 @@ export function createSimulation(snapshot:Snapshot,parameters:Parameters):Simula
   state.director.nextReview=difficulty.reviewInterval;
   state.replay={schema:1,frames:[],events:[],serial:1};
   state.challenge=evaluateChallenge(state);
-  logReplay(state,{at:0,kind:'start',title:s.challenge?`挑战开始 · ${s.challenge.name}`:'模拟开始',detail:`${s.title} · ${s.people} 人 · 签到人员 ${p.checkinStaff} 名 · 场地容量 ${p.capacity} 人 · 种子 ${p.seed}${s.challenge?` · ${s.challenge.goals.length} 项目标 / ${s.challenge.fails.length} 项失败条件`:''}`,location:'venue',dedupe:'start'});
+  logReplay(state,{at:0,kind:'start',title:s.challenge?`挑战开始 · ${s.challenge.name}`:'模拟开始',detail:`${s.title} · 预计 ${s.people} 人 · 签到人员 ${p.checkinStaff} 名 · 场地容量 ${p.capacity} 人${s.challenge?` · ${s.challenge.goals.length} 项目标`:''}`,location:'venue',dedupe:'start'});
+  if(missing)logReplay(state,{at:0,kind:'incident',title:'工作人员临时缺席',detail:`${missing} 名工作人员未到场，可用人员降至 ${state.availableStaff} 名。`,location:'entrance',severity:Math.min(3,missing),dedupe:'absence:initial'});
   recordReplayFrame(state);
   return state;
 }
@@ -78,16 +81,18 @@ export function step(previous:SimulationState,minutes=1):SimulationState {
     for(const task of s.tasks) {
       const reserve=s.queue>0||admitted>0?checkers:0;
       if(task.status==='等待'&&s.minute>=task.start&&task.dependencies.every(id=>s.tasks.find(t=>t.id===id)?.status==='已完成')&&!occupied.has(task.venue)&&allocated+task.staff<=s.availableStaff-reserve&&s.served>=Math.min(s.attendanceTotal,Math.ceil(s.attendanceTotal*.5))&&!s.weatherClosed&&!(task.equipment&&s.equipmentDown)) { task.status='进行中';task.actualStart=s.minute;allocated+=task.staff;occupied.add(task.venue); }
-      if(task.status==='进行中'&&!s.weatherClosed&&!(task.equipment&&s.equipmentDown)&&!(task.supplies&&s.supplyDown)) {task.remaining--;if(task.remaining<=0){task.status='已完成';task.actualEnd=s.minute;allocated-=task.staff;occupied.delete(task.venue);}}
+      const programPaused=s.director?.events.some(event=>event.status==='active'&&event.impact.pauseTaskId===task.id);
+      if(task.status==='进行中'&&!programPaused&&!s.weatherClosed&&!(task.equipment&&s.equipmentDown)&&!(task.supplies&&s.supplyDown)) {task.remaining--;if(task.remaining<=0){task.status='已完成';task.actualEnd=s.minute;allocated-=task.staff;occupied.delete(task.venue);}}
     }
     s.assignedStaff=allocated+(s.queue||admitted?checkers:0);
     s.staffBusyMinutes=(s.staffBusyMinutes??0)+s.assignedStaff;s.staffCapacityMinutes=(s.staffCapacityMinutes??0)+s.availableStaff;
-    const progress=s.tasks.filter(t=>t.status==='已完成').length/s.tasks.length;
-    s.baseSpend=Math.round(s.parameters.budget*.8*progress);
+    // Construction is priced by actual placed items; activity task costs require a user estimate.
+    s.baseSpend=0;
     s.delay=Math.max(0,...s.tasks.map(t=>t.status==='已完成'?(t.actualEnd??0)-(t.start+t.duration):t.status==='进行中'?s.minute+t.remaining-(t.start+t.duration):s.minute-t.start));
     // At a finite venue, people leave after a scene-specific dwell time, releasing capacity.
     const dwell=Math.max(30,s.snapshot.duration*model.dwell);
     if(s.minute>dwell)s.departed=Math.min(s.served,s.departed+r.poisson(Math.max(.1,s.served/dwell*directorDepartureFactor(s))));
+    advanceFacilities(s,r);
     const allDone=s.tasks.every(t=>t.status==='已完成');
     if(allDone&&s.arrived===s.attendanceTotal&&s.queue===0){s.status='finished';s.departed=s.served;}
     if(s.minute>=Math.min(4320,s.snapshot.duration+1440)){s.status='finished';s.timeout=true;}
@@ -109,10 +114,12 @@ export function step(previous:SimulationState,minutes=1):SimulationState {
     for(const incident of s.incidents){
       if(incidentIdsBefore.has(incident.id))continue;
       const meta=INCIDENT_LABELS[incident.kind];
-      logReplay(s,{
+      const incidentLog=logReplay(s,{
         at:s.minute,kind:'incident',title:meta.title,detail:incident.message,
-        severity:incident.severity,location:meta.location,dedupe:`incident:${incident.id}`,
+        severity:incident.severity,location:meta.location,cost:incident.cost,dedupe:`incident:${incident.id}`,
       });
+      const transaction=s.transactions?.find(entry=>entry.id===`incident:${incident.id}`);
+      if(transaction&&incidentLog)transaction.eventId=incidentLog.id;
     }
     if(s.status==='finished')logReplay(s,{
       at:s.minute,kind:'milestone',
@@ -122,15 +129,16 @@ export function step(previous:SimulationState,minutes=1):SimulationState {
     });
     syncDirectorMetrics(s);
     recordReplayFrame(s);
-    if(s.minute%5===0||s.status==='finished')s.trace.push({time:s.minute,queue:s.queue,delay:s.delay,cost:s.baseSpend+s.extraSpend});
+    if(s.minute%5===0||s.status==='finished')s.trace.push({time:s.minute,queue:s.queue,delay:s.delay,cost:(s.snapshot.buildCost??0)+s.extraSpend});
   }
   s.rng=r.state;return s;
 }
 export type Intervention = DirectorMitigation;
 export const actions:Record<Intervention,{name:string;cost:number}>={reserve:{name:'调用 2 名后备人员（1名协助签到）',cost:400},spare:{name:'启用一套备用设备',cost:100},shelter:{name:'启用室内备用场地',cost:800},supply:{name:'补充应急物资',cost:200},capacity:{name:'增开分流等候区（容量 +50）',cost:300},medical:{name:'调用外部医疗支援',cost:350},comfort:{name:'补给饮水与休息物资',cost:240}};
-export function intervene(previous:SimulationState,kind:Intervention) {
+export function intervene(previous:SimulationState,kind:Intervention,budgetMode:'unlimited'|'challenge'='unlimited') {
   const s=structuredClone(previous),action=actions[kind],directorWarning=s.director?.events.some(e=>e.status==='warning'&&(e.mitigation===kind||['queue','crowd','staff'].includes(e.kind)&&(kind==='reserve'||kind==='capacity')||['weather','comfort'].includes(e.kind)&&(kind==='shelter'||kind==='comfort')))??false;
   if(s.status==='finished')throw new Error('模拟已结束');
+  if(budgetMode==='challenge'&&s.extraSpend+action.cost>s.parameters.budget)throw new Error('预算挑战：余额不足，无法执行此项应对');
   if(kind==='spare'&&(!s.equipmentDown||s.usedSpare>=s.parameters.spare)&&!directorWarning)throw new Error('没有故障或备用设备已用尽');
   if(kind==='shelter'&&!s.weatherClosed&&!directorWarning||kind==='supply'&&!s.supplyDown&&!directorWarning)throw new Error('当前没有对应风险');
   if(kind!=='spare'&&s.actions.some(a=>a.name===action.name))throw new Error('此项预备资源仅能调用一次');
@@ -142,13 +150,14 @@ export function intervene(previous:SimulationState,kind:Intervention) {
   if(kind==='medical')s.satisfaction=Math.min(100,(s.satisfaction??70)+6);
   if(kind==='comfort')s.satisfaction=Math.min(100,(s.satisfaction??70)+4);
   if(['spare','shelter','supply'].includes(kind))s.incidents=s.incidents.map(e=>((kind==='spare'&&e.kind==='equipment')||(kind==='shelter'&&e.kind==='weather')||(kind==='supply'&&e.kind==='supply'))&&e.until>s.minute?{...e,until:s.minute}:e);
-  s.extraSpend+=action.cost;s.actions.push({at:s.minute,...action});
+  s.actions.push({at:s.minute,...action});
   preventDirectorWarnings(s,kind);
-  logReplay(s,{
+  const actionLog=logReplay(s,{
     at:s.minute,kind:'action',title:`现场应对 · ${action.name}`,
     detail:`${actionEffect(kind)}；支出 ¥${action.cost}。`,cost:action.cost,
     location:replaySpotForAction(kind),dedupe:`action:${kind}:${s.actions.length}`,
   });
+  charge(s,{at:s.minute,title:action.name,amount:action.cost,category:'action',sourceId:`${kind}:${s.actions.length}`,eventId:actionLog?.id});
   return s;
 }
 export function runToEnd(s:Snapshot,p:Parameters) {let state=createSimulation(s,p);while(state.status!=='finished')state=step(state,60);return state;}

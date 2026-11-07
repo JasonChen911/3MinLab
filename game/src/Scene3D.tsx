@@ -1,5 +1,6 @@
 import {useEffect,useRef} from 'react';
 import * as THREE from 'three';
+import {trackPoint} from './world/track';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {
   CATALOG, bounds, itemCost, itemHeight, placement,
@@ -184,7 +185,7 @@ function clearUniqueGroup(group: THREE.Group) {
   for (const child of [...group.children]) {
     group.remove(child);
     child.traverse(o => {
-      if (o instanceof THREE.Mesh || o instanceof THREE.LineSegments) {
+      if (o instanceof THREE.Mesh || o instanceof THREE.Line) {
         o.geometry.dispose();
         const mats = Array.isArray(o.material) ? o.material : [o.material];
         mats.forEach(m => m.dispose());
@@ -1007,11 +1008,30 @@ export default function Scene3D({layout, state, selected, selectedMany, place, t
     w.grid = nextGrid;
     clearUniqueGroup(w.environment);
     if ((layout.terrain ?? 'grass') === 'track') {
-      const track = new THREE.Mesh(new THREE.RingGeometry(layout.size * .2, layout.size * .29, 64), new THREE.MeshStandardMaterial({color: 0xc86a55, roughness: .95}));
+      const outer = layout.size * .29, inner = outer - Math.min(5, layout.size * .1), straight = layout.size * .15;
+      const oval = (radius: number) => Array.from({length: 129}, (_, i) => trackPoint(radius, straight, i / 128));
+      const outerPoints = oval(outer), innerPoints = oval(inner);
+      const shape = new THREE.Shape();
+      outerPoints.forEach((point, index) => index ? shape.lineTo(point.x, point.z) : shape.moveTo(point.x, point.z));
+      const hole = new THREE.Path();
+      innerPoints.reverse().forEach((point, index) => index ? hole.lineTo(point.x, point.z) : hole.moveTo(point.x, point.z));
+      shape.holes.push(hole);
+      const track = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshStandardMaterial({color: 0xb65f50, roughness: .95, side: THREE.DoubleSide}));
       track.rotation.x = -Math.PI / 2;
       track.position.y = .072;
       track.receiveShadow = true;
       w.environment.add(track);
+      const lineMaterial = new THREE.LineBasicMaterial({color: 0xfff5db});
+      for (let lane = 0; lane <= 4; lane++) {
+        const radius = inner + (outer - inner) * lane / 4;
+        const points = oval(radius).map(point => new THREE.Vector3(point.x, .082, point.z));
+        w.environment.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(points.slice(0,-1)), lineMaterial.clone()));
+      }
+      const finish = new THREE.Mesh(new THREE.PlaneGeometry(outer - inner, .16), new THREE.MeshBasicMaterial({color: 0xffffff, side: THREE.DoubleSide}));
+      finish.rotation.x = -Math.PI / 2;
+      finish.position.set((outer + inner) / 2, .084, 0);
+      finish.rotation.z = Math.PI / 2;
+      w.environment.add(finish);
     }
     const half = layout.size / 2;
     for (const [x, z, w2, d2] of [[0, -half, layout.size + .8, .5], [0, half, layout.size + .8, .5], [-half, 0, .5, layout.size + .8], [half, 0, .5, layout.size + .8]] as const) {

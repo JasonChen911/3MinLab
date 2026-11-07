@@ -32,7 +32,7 @@ export function recordReplayFrame(s: SimulationState): ReplayFrame | null {
     t: s.minute, arrived: s.arrived, served: s.served, departed: s.departed, queue: s.queue,
     peakQueue: s.peakQueue, occupancy: Math.max(0, s.served - s.departed),
     capacityUse: metrics?.capacityUse ?? Math.min(1, Math.max(0, s.served - s.departed) / Math.max(1, s.parameters.capacity)),
-    satisfaction: Math.round((s.satisfaction ?? 70) * 10) / 10, delay: s.delay, spend: s.baseSpend + s.extraSpend,
+    satisfaction: Math.round((s.satisfaction ?? 70) * 10) / 10, delay: s.delay, spend: (s.snapshot.buildCost ?? 0) + s.extraSpend,
     risk: metrics?.risk ?? 0, queuePressure: metrics?.queuePressure ?? 0,
     crowdPressure: metrics?.crowdPressure ?? 0, staffLoad: metrics?.staffLoad ?? 0,
     comfort: metrics?.comfort ?? 0, atmosphere: metrics?.atmosphere ?? 0, progress: metrics?.progress ?? 0,
@@ -41,6 +41,7 @@ export function recordReplayFrame(s: SimulationState): ReplayFrame | null {
     warningEvents: events.filter(event => event.status === 'warning').map(event => event.id),
     incidents: s.incidents.filter(incident => incident.until > s.minute).map(incident => incident.id),
     weatherClosed: s.weatherClosed, equipmentDown: s.equipmentDown, supplyDown: s.supplyDown,
+    toiletQueue: s.facilities?.toiletQueue ?? 0, vendorQueue: s.facilities?.vendorQueue ?? 0, restingStaff: s.facilities?.restingStaff ?? 0,
   };
   const last = replay.frames.at(-1);
   if (last && last.t === s.minute) replay.frames[replay.frames.length - 1] = frame;
@@ -124,6 +125,20 @@ export function replayEventKindLabel(kind: ReplayEventKind): string {
     start: '开场', director: '导演事件', incident: '突发故障', action: '现场应对',
     task: '流程节点', weather: '天气变化', milestone: '里程碑',
   })[kind];
+}
+
+export function timelineTone(entry: ReplayLogEntry): NonNullable<ReplayLogEntry['tone']> {
+  if (entry.tone) return entry.tone;
+  if (entry.kind === 'action') return 'action';
+  if (entry.kind === 'incident') return 'negative';
+  if (entry.kind === 'director') {
+    if (entry.title.includes('预警')) return 'warning';
+    if (entry.title.includes('正向') || entry.title.includes('化解') || entry.title.includes('结束')) return 'positive';
+    return 'negative';
+  }
+  if (entry.kind === 'task' || entry.kind === 'start') return 'progress';
+  if (entry.kind === 'milestone') return 'positive';
+  return 'info';
 }
 
 export function buildReplayExport(

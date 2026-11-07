@@ -38,7 +38,7 @@ describe('V5 活动回放：逐分钟记录', () => {
     expect(last.arrived).toBe(state.arrived);
     expect(last.occupancy).toBe(Math.max(0, state.served - state.departed));
     expect(last.satisfaction).toBe(Math.round((state.satisfaction ?? 70) * 10) / 10);
-    expect(last.spend).toBe(state.baseSpend + state.extraSpend);
+    expect(last.spend).toBe((state.snapshot.buildCost ?? 0) + state.extraSpend);
     expect(last.tasksDone).toBe(state.tasks.filter(task => task.status === '已完成').length);
     expect(last.tasksTotal).toBe(state.tasks.length);
     expect(last.activeEvents).toEqual(state.director!.events.filter(event => event.status === 'active').map(event => event.id));

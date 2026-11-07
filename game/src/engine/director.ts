@@ -6,6 +6,7 @@ import {addIncident} from './hazards';
 import type {Random} from './random';
 import {logReplay, replaySpotForDirectorKind} from './replay';
 import {difficultyProfile} from '../difficulty';
+import {charge} from './money';
 
 const HISTORY_LIMIT = 40;
 const clamp = (value: number, min = 0, max = 1) => Math.max(min, Math.min(max, value));
@@ -133,9 +134,9 @@ function candidates(s: SimulationState, d: DirectorState, m: DirectorMetrics): C
   if (!pending(d, 'equipment') && cooled(d, 'equipment', s.minute, 35) && !s.equipmentDown && (facility?.counts.equipment ?? 0) > 0 && (facility?.risks.equipment ?? 0) > .45 && s.tasks.some(task => task.equipment && task.status === '进行中')) {
     const risk = clamp(facility?.risks.equipment ?? 0);
     list.push({
-      kind: 'equipment', title: '演出设备风险升高', risk,
+      kind: 'equipment', title: `${s.snapshot.equipmentName}风险升高`, risk,
       reason: `设备质量评分 ${Math.round(facility?.equipmentQuality ?? 0)}/100，${facility?.weatherName}，受损设施 ${facility?.damagedItems ?? 0} 项；设备任务 ${s.tasks.filter(task => task.equipment && task.status === '进行中').length} 项正在进行。`,
-      chain: ['设备暴露在天气与负载中', '备用设备尚未启用', '演出/流程可能中断', '满意度下降'],
+      chain: ['设备暴露在天气与负载中', '备用设备尚未启用', '当前任务可能中断', '满意度下降'],
       effects: ['设备故障事件', '满意度每分钟 -0.15', '任务可能暂停'],
       mitigation: 'spare',
       impact: {addIncident: 'equipment', satisfactionPerMinute: -.15}, duration: 10, lead: 3,
@@ -152,6 +153,22 @@ function candidates(s: SimulationState, d: DirectorState, m: DirectorMetrics): C
       mitigation: 'comfort',
       impact: {satisfactionPerMinute: -.25, departureFactor: 1.1}, duration: 14, lead: 3,
     });
+  }
+
+  const currentTask = s.tasks.find(task => task.status === '进行中');
+  if (currentTask && !pending(d, 'program') && cooled(d, 'program', s.minute, 40)) {
+    const scene = s.snapshot.scene;
+    const line = scene === 'athletics' && s.queue >= 12
+      ? {title: '运动员检录延迟影响赛程', cause: `检录入口仍有 ${s.queue} 人排队，${currentTask.name}的人员调度受到影响。`, risk: clamp(s.queue / Math.max(20, s.snapshot.people * .2)), location: '检录区'}
+      : scene === 'performance' && (m.staffLoad > .7 || s.equipmentDown)
+        ? {title: '演出转场准备延迟', cause: `当前工作人员负荷 ${percent(m.staffLoad)}，${currentTask.name}的转场准备需要更多时间。`, risk: clamp(m.staffLoad), location: '主舞台'}
+        : scene === 'community' && (s.facilities?.vendorQueue ?? 0) >= 8
+          ? {title: '摊位拥堵影响互动流程', cause: `摊位有 ${s.facilities?.vendorQueue ?? 0} 人等待，${currentTask.name}的服务人员暂时不足。`, risk: clamp((s.facilities?.vendorQueue ?? 0) / 24), location: '服务区'}
+          : null;
+    if (line) list.push({kind: 'program', title: line.title, risk: line.risk,
+      reason: line.cause, chain: [line.location, '人员或资源被占用', `${currentTask.name}暂停`, '后续流程延误'],
+      effects: [`${currentTask.name}暂缓执行`, '活动延误随暂停时间增长'],
+      mitigation: 'reserve', impact: {pauseTaskId: currentTask.id, satisfactionPerMinute: -.08}, duration: 5, lead: 2});
   }
 
   if (!pending(d, 'positive') && cooled(d, 'positive', s.minute, 45) && s.minute >= 20 && facility && (s.satisfaction ?? 70) >= 74 && m.queuePressure < .25 && facility.atmosphere >= 58 && m.progress >= .2) {
@@ -211,7 +228,7 @@ function activateDirectorEvent(s: SimulationState, event: DirectorEvent, r: Rand
   if (event.impact.addIncident && !s.incidents.some(incident => incident.kind === event.impact.addIncident && incident.until > s.minute)) {
     addIncident(s, event.impact.addIncident, r);
   }
-  if (event.impact.budgetCost) s.extraSpend += event.impact.budgetCost;
+  if (event.impact.budgetCost) charge(s, {at: s.minute, title: `${event.title}应急费用`, amount: event.impact.budgetCost, category: 'incident', sourceId: `director-${event.id}`, eventId: [...(s.replay?.events ?? [])].reverse().find(entry => entry.directorId === event.id)?.id});
   if (event.impact.satisfactionOnActivation) s.satisfaction = clamp(s.satisfaction + event.impact.satisfactionOnActivation, 0, 100);
 }
 
@@ -303,6 +320,7 @@ export function directorDepartureFactor(s: SimulationState): number {
 function actionResolves(event: DirectorEvent, action: DirectorMitigation): boolean {
   if (event.mitigation === action) return true;
   if ((action === 'reserve' || action === 'capacity') && ['queue', 'crowd', 'staff'].includes(event.kind)) return true;
+  if (action === 'reserve' && event.kind === 'program') return true;
   if ((action === 'shelter' || action === 'comfort') && ['weather', 'comfort'].includes(event.kind)) return true;
   if (action === 'spare' && event.kind === 'equipment') return true;
   if (action === 'medical' && event.kind === 'medical') return true;
