@@ -58,6 +58,11 @@ export function validateLayout(value: unknown): Layout {
     activity: {...raw.activity, tasks: Array.isArray(raw.activity.tasks) ? raw.activity.tasks : []},
     history: Array.isArray(raw.history) ? raw.history.slice(0, 10) : [],
     people: cleanPeople(raw.people),
+    buildLedger: Array.isArray(raw.buildLedger) ? raw.buildLedger.filter(entry =>
+      entry && typeof entry.id === 'string' && typeof entry.title === 'string'
+      && typeof entry.sourceId === 'string' && Number.isFinite(entry.amount)
+      && (entry.category === 'facility' || entry.category === 'refund')
+    ).slice(-2000) : undefined,
   };
   return normalizeLayout(safe);
 }

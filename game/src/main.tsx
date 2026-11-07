@@ -36,6 +36,7 @@ import {
 import {analyticsCsv, buildAnalytics, type AnalyticsReport, type TrajectoryGroup} from './analytics';
 import type {LightingPreset} from './world/city';
 import {layoutFromPlan,layoutFromTemplate,readBridge,saveResult} from './integration';
+import {updateBuildLedger} from './engine/buildMoney';
 import './style.css';
 import './v3.css';
 import './integration.css';
@@ -518,7 +519,7 @@ function App() {
   const eventCount = state?.replay?.events.length ?? 0;
   const timelineEvents = (state?.replay?.events ?? []).filter(entry => timelineFilter === 'all' || timelineTone(entry) === timelineFilter);
   const facilityTransactions: MoneyTransaction[] = layout.items.filter(item => itemCost(item) > 0).map(item => ({id: `facility:${item.id}`, at: 0, title: CATALOG[item.kind].name, amount: itemCost(item), category: 'facility', sourceId: item.id}));
-  const moneyTransactions = [...facilityTransactions, ...(state?.transactions ?? (state?.extraSpend ? [{id:'incident:legacy',at:state.minute,title:'旧存档应急支出汇总',amount:state.extraSpend,category:'incident' as const,sourceId:'legacy'}] : []))];
+  const moneyTransactions = [...(layout.buildLedger ?? facilityTransactions), ...(state?.transactions ?? (state?.extraSpend ? [{id:'incident:legacy',at:state.minute,title:'旧存档应急支出汇总',amount:state.extraSpend,category:'incident' as const,sourceId:'legacy'}] : []))];
   const replayMax = state?.replay?.frames.at(-1)?.t ?? state?.minute ?? 0;
   const replayFrame: ReplayFrame | null = replay ? replayFrameAt(state?.replay, replay.minute) : null;
   const replayEvents: ReplayLogEntry[] = state?.replay?.events ?? [];
@@ -820,7 +821,7 @@ function App() {
   const update = (items: Item[]) => {
     setHistory(v => [...v.slice(-39), layout.items]);
     setFuture([]);
-    setLayout(prev => ({...prev, items}));
+    setLayout(prev => ({...prev, items, buildLedger: updateBuildLedger(prev.items, items, prev.buildLedger, state?.minute ?? 0)}));
   };
   const persist = (next: Layout, label?: string) => {
     try {
@@ -943,14 +944,14 @@ function App() {
   const undo = () => {
     if (!history.length) return;
     setFuture(v => [...v, layout.items]);
-    setLayout(prev => ({...prev, items: history.at(-1)!}));
+    setLayout(prev => ({...prev, items: history.at(-1)!, buildLedger: updateBuildLedger(prev.items, history.at(-1)!, prev.buildLedger, state?.minute ?? 0)}));
     setHistory(v => v.slice(0, -1));
     setMessage('已撤销。');
   };
   const redo = () => {
     if (!future.length) return;
     setHistory(v => [...v, layout.items]);
-    setLayout(prev => ({...prev, items: future.at(-1)!}));
+    setLayout(prev => ({...prev, items: future.at(-1)!, buildLedger: updateBuildLedger(prev.items, future.at(-1)!, prev.buildLedger, state?.minute ?? 0)}));
     setFuture(v => v.slice(0, -1));
     setMessage('已重做。');
   };
@@ -995,7 +996,7 @@ function App() {
     if (!confirm('重置当前场地的全部设施？可使用撤销恢复。')) return;
     setHistory(v => [...v, layout.items]);
     setFuture([]);
-    setLayout(prev => ({...prev, items: freshLayout(prev.activity.scene).items}));
+    setLayout(prev => {const items=freshLayout(prev.activity.scene).items;return {...prev,items,buildLedger:updateBuildLedger(prev.items,items,prev.buildLedger,state?.minute??0)}});
     setState(null); setRunning(false); setMode('build'); setSelected(''); setPlace(null); setTool('select');
     peopleTimeline.current = []; setReplay(null); setRestorePeople(null);
     setMessage('场地已重置。');
@@ -2140,7 +2141,7 @@ function App() {
           <div className="v7-money-stats"><span>活动预算 <b>{money(layout.activity.budget)}</b></span><span>设施配置 <b>{money(used)}</b></span><span>应急支出 <b>{money(state?.extraSpend ?? 0)}</b></span><span>剩余 <b>{money(Math.max(0,layout.activity.budget-used-(state?.extraSpend ?? 0)))}</b></span><span>超额 <b>{money(Math.max(0,used+(state?.extraSpend ?? 0)-layout.activity.budget))}</b></span></div>
           <small>设施金额来自当前配置；应急金额来自模拟交易。未配置的人力、场地、餐饮与宣传费用不计入已支出。</small>
           <div className="v7-money-list">{moneyTransactions.map(entry => <button key={entry.id} onClick={() => {if(entry.eventId){setEventsOpen(true);setTimelineSelected(entry.eventId)}else if(entry.category==='facility'){setSelected(entry.sourceId);setPanelOpen(true)}}}>
-            <span>{entry.category === 'facility' ? '配置' : `${entry.at}′`}</span><b>{entry.title}</b><em>{entry.category === 'facility' ? '设施' : entry.category === 'action' ? '应对' : '事件'}</em><strong>{money(entry.amount)}</strong>
+            <span>{entry.category === 'facility' || entry.category === 'refund' ? '配置' : `${entry.at}′`}</span><b>{entry.title}</b><em>{entry.category === 'facility' ? '设施' : entry.category === 'refund' ? '返还' : entry.category === 'action' ? '应对' : '事件'}</em><strong>{money(entry.amount)}</strong>
           </button>)}{!moneyTransactions.length && <p>尚无设施或应急交易。</p>}</div>
         </section>}
         {eventsOpen && <>

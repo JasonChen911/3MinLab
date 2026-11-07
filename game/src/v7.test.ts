@@ -1,10 +1,11 @@
 import {describe, expect, it} from 'vitest';
-import {freshLayout, intervene, start, step} from './game';
+import {cost, freshLayout, intervene, start, step} from './game';
 import {charge} from './engine/money';
 import {advanceFacilities} from './engine/facilityRuntime';
 import {Random} from './engine/random';
 import {trackPoint} from './world/track';
 import {makeVenueItems} from './venues';
+import {updateBuildLedger} from './engine/buildMoney';
 
 describe('V7 资金与设施状态', () => {
   it('同一来源只计费一次，存档恢复后仍保持唯一', () => {
@@ -13,6 +14,19 @@ describe('V7 资金与设施状态', () => {
     expect(charge(state, transaction)?.id).toBe('action:spare-1');
     expect(charge(structuredClone(state), transaction)).toBeNull();
     expect(state.extraSpend).toBe(200);
+  });
+
+  it('建造、缩放和撤销均留下记录，净额等于当前场地配置', () => {
+    const before = freshLayout('conference').items;
+    const after = [...before, {id:'v7-chair',kind:'chair' as const,x:10,z:10,rotation:0,scale:1}];
+    const added = updateBuildLedger(before, after);
+    expect(added.reduce((sum, entry) => sum + entry.amount, 0)).toBe(cost(after));
+    const scaled = after.map(item => item.id === 'v7-chair' ? {...item,scale:2} : item);
+    const upgraded = updateBuildLedger(after, scaled, added);
+    const refunded = updateBuildLedger(scaled, before, upgraded);
+    expect(refunded.at(-1)?.category).toBe('refund');
+    expect(refunded.reduce((sum, entry) => sum + entry.amount, 0)).toBe(cost(before));
+    expect(new Set(refunded.map(entry => entry.id)).size).toBe(refunded.length);
   });
 
   it('预算挑战阻止超额应对，无限资金模式仍记录交易', () => {
