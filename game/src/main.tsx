@@ -1615,7 +1615,7 @@ function App() {
       <header className="v3-hud">
         <div className="v3-brand">
           <span className="v3-logo">3M</span>
-          <div><b>开放世界活动模拟器</b><span>3MinLab · Event World V8</span></div>
+          <div><b>开放世界活动模拟器</b><span>3MinLab · Event World V9</span></div>
         </div>
         <div className="v3-activity">
           <b>{layout.activity.title}</b>
@@ -2555,18 +2555,15 @@ function App() {
 
     {showGuide && <div className="v3-guide">
       <div className="v3-guide-card">
-        <small>3MINLAB · EVENT WORLD V4</small>
-        <h2>在真实尺度场地里搭建与演练</h2>
+        <small>3MINLAB · EVENT WORLD V9</small>
+        <h2>三步搭建你的活动场地</h2>
         <ol>
-          <li><b>镜头</b>：右键拖动 360° 水平旋转，中键或 Space + 左键平移，滚轮朝光标缩放；俯仰角受限，不会翻转或翻滚。左键选择、拖动设施，双击编辑属性，F 恢复场地视角。</li>
-          <li><b>场地</b>：设置中可选体育场、剧院、餐厅、草坪、多功能会议厅、户外音乐节六类场地，每类有 S/M/L 三种真实尺寸与容量；室内场地支持墙体自动隐藏、半透明和隐藏模式。</li>
-          <li><b>建造与碰撞</b>：所有设施都有独立碰撞体，放置预览以绿/黄/红显示可行性与原因；人物使用胶囊避让与 A* 寻路，施工人员和观众会绕开障碍，工作人员还能推动桌椅。</li>
-          <li><b>角色</b>：观众、参与者、演员、主持、裁判、工作人员、志愿者、安保、医疗与服务人员按活动类型进入不同状态机：签到、找座、就座、后台、上台、巡逻、服务、退场。选中人物可查看角色、任务、目标、状态与剩余路径。</li>
-          <li><b>天气与预算</b>：晴天/阴天/小雨/大雨/微风/大风影响帐篷稳定、设备、速度与舒适度；可手动设定或开启带预警的自动天气。默认无限资金只记录与提醒，预算挑战模式会真正阻止超支放置，结算时给出预算对比。</li>
-          <li><b>模拟</b>：开始后参与者从入口经签到、活动区移动，车辆沿道路行驶，突发事件按概率影响设施；所有原有模板、评分、保存与经验系统继续可用。</li>
+          <li><b>选场地</b>：在「设置」中选体育场、剧院或其他模板，也可以从空白场地开始。</li>
+          <li><b>摆设施</b>：从左侧选择建造工具，点击场地放置；拖动调整位置，双击查看属性。</li>
+          <li><b>看结果</b>：点击「开始模拟」，观察人员、天气与预算如何影响活动。</li>
         </ol>
-        <p>所有预设场地都可以继续修改，完成后按模拟结果获得经验。</p>
-        <button className="v3-primary" onClick={() => { setShowGuide(false); localStorage.setItem(storageKey, 'done'); }}>进入 3D 场地</button>
+        <p>右键旋转视角，滚轮缩放，按 F 回到场地全景。</p>
+        <button className="v3-primary" onClick={() => { setShowGuide(false); localStorage.setItem(storageKey, 'done'); }}>开始搭建</button>
       </div>
     </div>}
   </div>;

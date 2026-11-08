@@ -1,6 +1,6 @@
 import {useEffect,useRef} from 'react';
 import * as THREE from 'three';
-import {trackPoint} from './world/track';
+import {addStadiumSurface} from './world/stadium';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {
   CATALOG, bounds, itemCost, simulationItemCost, itemHeight, placement,
@@ -149,7 +149,7 @@ function buildSurfaceTexture(terrain: Layout['terrain'], theme: ReturnType<typeo
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = 256;
   const ctx = canvas.getContext('2d')!;
-  const base = terrain === 'plaza' ? theme.plaza : theme.grass;
+  const base = terrain === 'plaza' ? theme.plaza : terrain === 'track' ? 0x819d79 : theme.grass;
   ctx.fillStyle = `#${base.toString(16).padStart(6, '0')}`;
   ctx.fillRect(0, 0, 256, 256);
   if (terrain === 'plaza') {
@@ -159,13 +159,13 @@ function buildSurfaceTexture(terrain: Layout['terrain'], theme: ReturnType<typeo
     for (let y = 0; y <= 256; y += 32) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(256, y); ctx.stroke(); }
     for (let i = 0; i < 90; i++) { ctx.fillStyle = i % 2 ? '#00000010' : '#ffffff12'; ctx.fillRect((i * 53) % 256, (i * 97) % 256, 5, 5); }
   } else {
-    for (let y = 0; y < 256; y += 32) {
+    if (terrain !== 'track') for (let y = 0; y < 256; y += 32) {
       ctx.fillStyle = (y / 32) % 2 ? 'rgba(255,255,255,.05)' : 'rgba(0,50,0,.045)';
       ctx.fillRect(0, y, 256, 32);
     }
     for (let i = 0; i < 1800; i++) {
       const x = (i * 61) % 256, y = (i * 149 + (i >> 4) * 13) % 256;
-      ctx.fillStyle = i % 9 === 0 ? '#ffffff18' : i % 11 === 0 ? '#1d511a20' : '#2c6b221c';
+      ctx.fillStyle = terrain === 'track' ? (i % 9 === 0 ? '#ffffff0c' : '#244a2410') : i % 9 === 0 ? '#ffffff18' : i % 11 === 0 ? '#1d511a20' : '#2c6b221c';
       ctx.fillRect(x, y, 2, i % 4 === 0 ? 3 : 1);
     }
     if (terrain !== 'track') {
@@ -1031,30 +1031,7 @@ export default function Scene3D({layout, state, selected, selectedMany, place, t
     w.grid = nextGrid;
     clearUniqueGroup(w.environment);
     if ((layout.terrain ?? 'grass') === 'track') {
-      const outer = layout.size * .29, inner = outer - Math.min(5, layout.size * .1), straight = layout.size * .15;
-      const oval = (radius: number) => Array.from({length: 129}, (_, i) => trackPoint(radius, straight, i / 128));
-      const outerPoints = oval(outer), innerPoints = oval(inner);
-      const shape = new THREE.Shape();
-      outerPoints.forEach((point, index) => index ? shape.lineTo(point.x, point.z) : shape.moveTo(point.x, point.z));
-      const hole = new THREE.Path();
-      innerPoints.reverse().forEach((point, index) => index ? hole.lineTo(point.x, point.z) : hole.moveTo(point.x, point.z));
-      shape.holes.push(hole);
-      const track = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshStandardMaterial({color: 0xb65f50, roughness: .95, side: THREE.DoubleSide}));
-      track.rotation.x = -Math.PI / 2;
-      track.position.y = .072;
-      track.receiveShadow = true;
-      w.environment.add(track);
-      const lineMaterial = new THREE.LineBasicMaterial({color: 0xfff5db});
-      for (let lane = 0; lane <= 4; lane++) {
-        const radius = inner + (outer - inner) * lane / 4;
-        const points = oval(radius).map(point => new THREE.Vector3(point.x, .082, point.z));
-        w.environment.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(points.slice(0,-1)), lineMaterial.clone()));
-      }
-      const finish = new THREE.Mesh(new THREE.PlaneGeometry(outer - inner, .16), new THREE.MeshBasicMaterial({color: 0xffffff, side: THREE.DoubleSide}));
-      finish.rotation.x = -Math.PI / 2;
-      finish.position.set((outer + inner) / 2, .084, 0);
-      finish.rotation.z = Math.PI / 2;
-      w.environment.add(finish);
+      addStadiumSurface(w.environment, layout.size);
     }
     const half = layout.size / 2;
     for (const [x, z, w2, d2] of [[0, -half, layout.size + .8, .5], [0, half, layout.size + .8, .5], [-half, 0, .5, layout.size + .8], [half, 0, .5, layout.size + .8]] as const) {

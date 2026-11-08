@@ -125,14 +125,26 @@ function stage(g: THREE.Group, w: number, d: number, color: number, large: boole
 
 function bleachers(g: THREE.Group, w: number, d: number, color: number) {
   const tiers = 4;
+  const concrete = 0x9aa6a2;
+  const seat = new THREE.Color(color).lerp(new THREE.Color(0x476a78), .58).getHex();
+  box(g, w + .22, .16, d + .18, 0x798984, 0, .08);
   for (let n = 0; n < tiers; n++) {
-    const y = .25 + n * .42;
-    box(g, w, .34, 1, color, 0, y, -d / 2 + .6 + n * .78);
-    box(g, w, .12, .12, 0x4c6b5e, 0, y + .25, -d / 2 + .2 + n * .78);
+    const z = d / 2 - .38 - n * (d / tiers);
+    const top = .36 + n * .34;
+    box(g, w, top, d / tiers + .02, concrete, 0, top / 2, z);
+    for (let s = 0; s < 6; s++) {
+      const x = -w / 2 + (s + .5) * w / 6;
+      box(g, w / 6 - .08, .08, .42, s % 3 === 0 ? 0x708f99 : seat, x, top + .04, z - .08);
+      box(g, w / 6 - .08, .28, .07, s % 3 === 0 ? 0x708f99 : seat, x, top + .2, z - .3);
+    }
   }
   for (const side of [-1, 1]) {
-    box(g, .16, 2.2, d, 0x53695f, side * (w / 2 + .1), 1.1, 0);
+    box(g, .14, 1.15, d, 0x697b78, side * (w / 2 + .08), .58, 0);
+    box(g, .06, .06, d, 0xd9dfd5, side * (w / 2 + .08), 1.18, 0);
+    box(g, .09, 2.35, .09, 0x697b78, side * (w * .43), 1.18, -d / 2 + .32);
   }
+  box(g, w + .42, .12, d * .28, 0xd6d9ce, 0, 2.42, -d / 2 + d * .16);
+  box(g, w + .42, .1, .1, 0x5e716e, 0, 2.32, -d / 2 + d * .3);
 }
 
 function tent(g: THREE.Group, w: number, d: number, color: number) {
