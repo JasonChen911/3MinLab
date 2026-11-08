@@ -22,6 +22,7 @@ export interface FacilityParameters {
   capacity:number; servicePerMinute:number; averageUseMinutes:number; staffNeed:number; radius:number;
   source:string; updatedAt:string; region:string; supplier:string;
   acquisition:'rent'|'buy';
+  priceStatus?:'pending'|'unquoted'|'quoted'|'free'|'excluded';
 }
 export interface SimulationFinance {
   budgetMode:SimulationBudgetMode; budget:number; staffHourlyWage:number;
@@ -79,7 +80,14 @@ export function facilityParameters(item:Item):FacilityParameters {
 }
 export function simulationItemCost(item:Item):number {
  const p=facilityParameters(item);
+ if(facilityPriceStatus(item)!=='quoted')return 0;
  return Math.round(Math.max(0,p.quantity)*(Math.max(0,p.acquisition==='buy'?p.purchasePrice:p.rentalPrice)+Math.max(0,p.useCost)*Math.max(0,p.hours)+Math.max(0,p.maintenanceCost)+Math.max(0,p.transportCost)+Math.max(0,p.installationCost)));
+}
+export function facilityPriceStatus(item:Item):NonNullable<FacilityParameters['priceStatus']>{
+ const explicit=item.parameters?.priceStatus;
+ if(explicit)return explicit;
+ const p=item.parameters;
+ return p&&[p.purchasePrice,p.rentalPrice,p.useCost,p.maintenanceCost,p.transportCost,p.installationCost].some(value=>(value??0)>0)?'quoted':'pending';
 }
 export function simulationStaffCost(layout:Layout):number {
  const f={...defaultSimulationFinance,...layout.simulationFinance};
@@ -101,7 +109,13 @@ export function placement(layout:Layout,item:Item,budgetMode:BudgetMode='unlimit
   const total=layout.operatingMode==='simulation'?layoutCost({...layout,items:[...layout.items.filter(i=>i.id!==item.id),item]}):cost(layout.items.filter(i=>i.id!==item.id))+itemCost(item);
   const limit=layout.operatingMode==='simulation'?(layout.simulationFinance?.budget??layout.activity.budget):layout.activity.budget,over=total-limit;
   if(over>0&&(layout.operatingMode==='simulation'?layout.simulationFinance?.budgetMode==='limited':budgetMode==='challenge'))return {level:'invalid',reason:`预算不足 ¥${over}`};
-  if(CATALOG[item.kind].solid||item.kind==='road'||item.kind==='roadCurve'||item.kind==='path'){for(const other of layout.items){if(other.id===item.id||!CATALOG[other.kind].solid)continue;const a=bounds(other);if(Math.abs(item.x-other.x)<(a.w+b.w)/2&&Math.abs(item.z-other.z)<(a.d+b.d)/2)return {level:'invalid',reason:`与${CATALOG[other.kind].name}重叠`};}}
+  const isRoute=(kind:Kind)=>kind==='road'||kind==='roadCurve'||kind==='path'||kind==='entrance';
+  if(CATALOG[item.kind].solid||isRoute(item.kind)){for(const other of layout.items){
+    if(other.id===item.id||!(CATALOG[other.kind].solid||isRoute(other.kind)))continue;
+    if(isRoute(item.kind)&&isRoute(other.kind))continue;
+    const a=bounds(other);
+    if(Math.abs(item.x-other.x)<(a.w+b.w)/2&&Math.abs(item.z-other.z)<(a.d+b.d)/2)return {level:'invalid',reason:`与${CATALOG[other.kind].name}重叠`};
+  }}
   const entrance=layout.items.find(i=>i.kind==='entrance'),desk=layout.items.find(i=>['checkin','checkinSmall','checkinLarge'].includes(i.kind));
   if(item.kind==='entrance'&&desk&&Math.hypot(item.x-desk.x,item.z-desk.z)<4||['checkin','checkinSmall','checkinLarge'].includes(item.kind)&&entrance&&Math.hypot(item.x-entrance.x,item.z-entrance.z)<4)return {level:'warning',reason:'入口与签到区较近，建议留出排队空间'};
   const variant=venueVariant(layout.venueId,layout.venueVariant??'medium');

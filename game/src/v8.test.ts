@@ -1,7 +1,8 @@
 import {describe,expect,it} from 'vitest';
-import {CATALOG,capacityOf,defaultSimulationFinance,facilityParameters,freshLayout,intervene,itemCost,layoutCost,normalizeLayout,operatingIssues,simulationItemCost,start} from './game';
+import {CATALOG,capacityOf,defaultSimulationFinance,facilityParameters,facilityPriceStatus,freshLayout,intervene,itemCost,layoutCost,normalizeLayout,operatingIssues,placement,simulationItemCost,start} from './game';
 import {analyzeFacilities} from './facilities';
 import {priceNeedsReview,upsertParameterPreset} from './parameterLibrary';
+import type {Item} from './game';
 
 describe('V8 两种规则与设施方案',()=>{
   it('现实报价、人员和场地费用不改变游戏固定价格',()=>{
@@ -73,5 +74,23 @@ describe('V8 两种规则与设施方案',()=>{
     expect(findings).not.toContain('设施费用超出活动预算');
     expect(priceNeedsReview('2026-01-01',Date.parse('2026-11-08'))).toBe(true);
     expect(priceNeedsReview('2026-11-01',Date.parse('2026-11-08'))).toBe(false);
+  });
+  it('现实报价状态区分待填、免费和已报价，并兼容旧报价',()=>{
+    const chair:Item={id:'price-v9',kind:'chair',x:0,z:0,rotation:0};
+    expect(facilityPriceStatus(chair)).toBe('pending');
+    expect(simulationItemCost(chair)).toBe(0);
+    chair.parameters={rentalPrice:120,quantity:2};
+    expect(facilityPriceStatus(chair)).toBe('quoted');
+    expect(simulationItemCost(chair)).toBe(240);
+    chair.parameters.priceStatus='free';
+    expect(simulationItemCost(chair)).toBe(0);
+    chair.parameters.priceStatus='excluded';
+    expect(simulationItemCost(chair)).toBe(0);
+  });
+  it('建造时不能用实体设施堵住道路或出入口',()=>{
+    const layout=freshLayout('community');
+    layout.items=[{id:'entry',kind:'entrance',x:0,z:0,rotation:0},{id:'road',kind:'road',x:8,z:0,rotation:0}];
+    expect(placement(layout,{id:'chair',kind:'chair',x:0,z:0,rotation:0}).level).toBe('invalid');
+    expect(placement(layout,{id:'stage',kind:'stage',x:8,z:0,rotation:0}).level).toBe('invalid');
   });
 });

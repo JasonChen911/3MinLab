@@ -3,7 +3,7 @@ import {createRoot} from 'react-dom/client';
 import Scene3D, {type CameraAction, type Quality, type Tool} from './Scene3D';
 import type {DebugStats} from './world/debug';
 import {
-  CATALOG, ROLE_LABELS, alignItems, applyDifficulty, batchMove, batchRotate, bounds, capacityOf, cost, evaluate, freshLayout, importBackup, operatingIssues, itemCost, placement, facilityParameters, layoutCost, simulationItemCost, simulationStaffCost, simulationVenueCost, defaultSimulationFinance,
+  CATALOG, ROLE_LABELS, alignItems, applyDifficulty, batchMove, batchRotate, bounds, capacityOf, cost, evaluate, freshLayout, importBackup, operatingIssues, itemCost, placement, facilityParameters, facilityPriceStatus, layoutCost, simulationItemCost, simulationStaffCost, simulationVenueCost, defaultSimulationFinance,
   reconcile, roleCounts, start, step, intervene,
   type BatchResult, type Facility, type FacilityParameters, type Intervention, type Item, type Kind, type Layout, type PersonSave, type SimulationState, type WeatherKind,
 } from './game';
@@ -520,6 +520,17 @@ function App() {
   const facility = state?.snapshot.facility ?? analyzeFacilities(layout, CATALOG);
   const alerts = directorWarnings(state);
   const activeDirectorEvents = directorActiveEvents(state);
+  const relevantActions = actions.filter(action => {
+    if (!state || state.status === 'finished') return false;
+    if (alerts.some(alert => alert.mitigation === action.kind)) return true;
+    return action.kind === 'reserve' ? state.missingStaff > 0 || state.queue > Math.max(12, state.parameters.checkinStaff * 8)
+      : action.kind === 'spare' ? state.equipmentDown
+      : action.kind === 'shelter' ? state.weatherClosed
+      : action.kind === 'supply' ? state.supplyDown
+      : action.kind === 'capacity' ? state.queue > 20 && state.served - state.departed >= state.parameters.capacity * .8
+      : action.kind === 'medical' ? activeDirectorEvents.some(event => event.kind === 'medical')
+      : (state.satisfaction ?? 70) < 45;
+  });
   const satisfaction = Math.round(state?.satisfaction ?? 70);
   const challenge = layout.challenge;
   const challengeResult = state?.challenge;
@@ -527,6 +538,7 @@ function App() {
   const timelineEvents = (state?.replay?.events ?? []).filter(entry => timelineFilter === 'all' || timelineTone(entry) === timelineFilter);
   const facilityTransactions: MoneyTransaction[] = layout.items.filter(item => (realMode?simulationItemCost(item):itemCost(item)) > 0).map(item => ({id: `facility:${item.id}`, at: 0, title: CATALOG[item.kind].name, amount: realMode?simulationItemCost(item):itemCost(item), category: 'facility', sourceId: item.id}));
   const realOverhead:MoneyTransaction[]=realMode?[{id:'real:staff',at:0,title:'人员费用',amount:simulationStaffCost(layout),category:'facility',sourceId:'staff'},{id:'real:venue',at:0,title:'场地费用',amount:simulationVenueCost(layout),category:'facility',sourceId:'venue'}].filter(entry=>entry.amount>0) as MoneyTransaction[]:[];
+  const unpricedFacilities=realMode?layout.items.filter(item=>['pending','unquoted'].includes(facilityPriceStatus(item))).length:0;
   const moneyTransactions = [...(realMode?[...facilityTransactions,...realOverhead]:(layout.buildLedger ?? facilityTransactions)), ...(state?.transactions ?? (state?.extraSpend ? [{id:'incident:legacy',at:state.minute,title:'旧存档应急支出汇总',amount:state.extraSpend,category:'incident' as const,sourceId:'legacy'}] : []))];
   const replayMax = state?.replay?.frames.at(-1)?.t ?? state?.minute ?? 0;
   const replayFrame: ReplayFrame | null = replay ? replayFrameAt(state?.replay, replay.minute) : null;
@@ -868,6 +880,7 @@ function App() {
   const changeFacilityParameter=(item:Item,key:keyof FacilityParameters,value:string|number)=>{
     const current=facilityParameters(item);
     const next={...current,[key]:value};
+    if(['purchasePrice','rentalPrice','useCost','maintenanceCost','transportCost','installationCost'].includes(key)&&Number(value)>0)next.priceStatus='quoted';
     if((key==='capacity'||key==='averageUseMinutes')&&item.kind==='toilet')next.servicePerMinute=next.capacity/Math.max(.1,next.averageUseMinutes);
     if(key==='capacity'&&item.kind.startsWith('checkin'))next.servicePerMinute=next.capacity*1.2;
     if(key==='capacity'&&(item.kind==='tent'||item.kind==='tentSmall'))next.servicePerMinute=next.capacity/Math.max(.1,next.averageUseMinutes);
@@ -1773,7 +1786,7 @@ function App() {
           <div className="v3-badges">
             <span>{CATALOG[chosen.kind].group}</span>
             <span className={chosen.locked ? 'locked' : 'editable'}>{chosen.locked ? '已锁定' : '可编辑'}</span>
-            <span>{realMode?`现实成本 ${money(simulationItemCost(chosen))}`:`游戏金币 ${itemCost(chosen)}`}</span>
+            <span>{realMode?['pending','unquoted'].includes(facilityPriceStatus(chosen))?'现实价格待填写':facilityPriceStatus(chosen)==='free'?'免费使用':facilityPriceStatus(chosen)==='excluded'?'不计入成本':`现实成本 ${money(simulationItemCost(chosen))}`:`游戏金币 ${itemCost(chosen)}`}</span>
             {chosen.anchored && <span>已固定</span>}
             {chosen.damaged && <span>受损</span>}
           </div>
@@ -1807,6 +1820,7 @@ function App() {
             <h4>现实设施参数 <small>可按实际供应商修改</small></h4>
             <p className="v3-hint">未填写价格按未知金额 0 暂计，不能视为免费或市场报价。能力初值仅为演示假设。</p>
             <div className="v3-grid">
+              <label>价格状态<select disabled={!editable||chosenLocked} value={facilityPriceStatus(chosen)} onChange={e=>changeFacilityParameter(chosen,'priceStatus',e.target.value)}><option value="pending">价格待填写</option><option value="unquoted">暂无报价</option><option value="quoted">已设置价格</option><option value="free">免费使用</option><option value="excluded">不计入成本</option></select></label>
               {([['capacity','容量 / 人'],['servicePerMinute','每分钟服务人数'],['averageUseMinutes','平均服务时长 / 分钟'],['staffNeed','所需人员'],['radius','影响半径 / 米'],['purchasePrice','购买单价 / ¥'],['rentalPrice','租赁单价 / ¥'],['useCost','每小时使用费 / ¥'],['maintenanceCost','维护费 / ¥'],['transportCost','运输费 / ¥'],['installationCost','装拆费 / ¥'],['quantity','数量'],['hours','使用时长 / 小时']] as [keyof FacilityParameters,string][]).filter(([key])=>key==='capacity'?facilityParameters(chosen).capacity>0||['toilet','rest','medical'].includes(chosen.kind):key==='servicePerMinute'?['checkin','checkinSmall','checkinLarge','toilet','tent','tentSmall'].includes(chosen.kind):key==='averageUseMinutes'?['toilet','tent','tentSmall'].includes(chosen.kind):key==='staffNeed'?facilityImpact(chosen.kind).staffNeed>0||['toilet','tent','tentSmall'].includes(chosen.kind):key==='radius'?['speaker','light','screen'].includes(chosen.kind):true).map(([key,label])=><label key={key}>{label}<input type="number" min="0" step="any" disabled={!editable||chosenLocked} value={facilityParameters(chosen)[key]} onChange={e=>changeFacilityParameter(chosen,key,Math.max(0,Number(e.target.value)||0))}/></label>)}
               <label>取得方式<select disabled={!editable||chosenLocked} value={facilityParameters(chosen).acquisition} onChange={e=>changeFacilityParameter(chosen,'acquisition',e.target.value)}><option value="rent">租赁</option><option value="buy">购买</option></select></label>
               <label>地区<input disabled={!editable||chosenLocked} value={facilityParameters(chosen).region} onChange={e=>changeFacilityParameter(chosen,'region',e.target.value)}/></label>
@@ -1814,7 +1828,7 @@ function App() {
               <label>价格来源<input disabled={!editable||chosenLocked} value={facilityParameters(chosen).source} onChange={e=>changeFacilityParameter(chosen,'source',e.target.value)}/></label>
               <label>价格更新时间<input type="date" disabled={!editable||chosenLocked} value={facilityParameters(chosen).updatedAt} onChange={e=>changeFacilityParameter(chosen,'updatedAt',e.target.value)}/></label>
             </div>
-            <p>本设施现实成本 <b>{money(simulationItemCost(chosen))}</b></p>
+            <p>本设施现实成本 <b>{['pending','unquoted'].includes(facilityPriceStatus(chosen))?'待确认':facilityPriceStatus(chosen)==='excluded'?'不计入':money(simulationItemCost(chosen))}</b></p>
             {priceNeedsReview(facilityParameters(chosen).updatedAt)&&<p className="v8-price-warning">价格未标更新时间或已超过 180 天，请重新核对来源。</p>}
             <div className="v3-row"><button disabled={!editable||chosenLocked} onClick={()=>saveFacilityPreset(chosen)}>保存到参数方案库</button><select aria-label="调用参数方案" disabled={!editable||chosenLocked} value="" onChange={e=>{const preset=parameterLibrary.find(entry=>entry.id===e.target.value);if(preset)change(chosen.id,{parameters:preset.parameters});}}><option value="">调用已存方案…</option>{parameterLibrary.filter(entry=>entry.kind===chosen.kind).map(entry=><option key={entry.id} value={entry.id}>{entry.name} · {entry.parameters.updatedAt||entry.savedAt}</option>)}</select></div>
           </section>}
@@ -2162,58 +2176,63 @@ function App() {
         <div className="v3-sim-top">
           <div className="v3-clock"><b>{state ? `${state.minute}′` : '—'}</b><span>{state ? statusLabels[state.status] : '未开始'}</span></div>
           <div className="v3-sim-stats">
+            <span>参与 <b>{Math.max(0,(state?.served ?? 0)-(state?.departed ?? 0))}</b> / {layout.activity.people}</span>
+            <span className={satisfaction < 45 ? 'warn' : ''}>满意 <b>{satisfaction}</b></span>
+            <span className={alerts.length ? 'warn' : ''}>预警 <b>{alerts.length}</b></span>
+            <details className="v9-sim-more"><summary>更多现场数据</summary><div>
+            <span>报名 <b>{state?.attendanceTotal ?? 0}</b></span>
             <span>到场 <b>{state?.arrived ?? 0}</b></span>
             <span>签到 <b>{state?.served ?? 0}</b></span>
+            <span>离场 <b>{state?.departed ?? 0}</b></span>
             <span>排队 <b>{state?.queue ?? 0}</b></span>
             <span className={(state?.facilities?.toiletQueue ?? 0) >= 8 ? 'warn' : ''}>卫生间 <b>{state?.facilities?.toiletQueue ?? 0}</b></span>
             <span className={(state?.facilities?.vendorQueue ?? 0) >= 8 ? 'warn' : ''}>摊位 <b>{state?.facilities?.vendorQueue ?? 0}</b></span>
             <span>可轮休 <b>{state?.facilities?.restingStaff ?? 0}</b></span>
             <span className={(state?.staffFatigue ?? 0) > .6 ? 'warn' : ''}>疲劳 <b>{Math.round((state?.staffFatigue ?? 0) * 100)}%</b></span>
-            <span className={satisfaction < 45 ? 'warn' : ''}>满意 <b>{satisfaction}</b></span>
-            <span className={alerts.length ? 'warn' : ''}>预警 <b>{alerts.length}</b></span>
             {challengeResult && <span className={challengeResult.failed ? 'warn' : ''}>目标 <b>{challengeResult.met}/{challengeResult.total}</b></span>}
             <span>延误 <b>{state?.delay ?? 0}′</b></span>
             <span className={warnings.length ? 'warn' : ''}>提醒 <b>{warnings.length}</b></span>
+            </div></details>
           </div>
           <div className="v3-sim-actions">
             {state ? <>
               <button className="v3-primary" onClick={() => running ? pause() : resume()}>{state.status === 'finished' ? '▶ 重新模拟' : running ? '⏸ 暂停' : '▶ 继续'}</button>
-              <button disabled={running || state.status === 'finished'} onClick={() => setState(old => old ? step(old, 1) : old)}>单步</button>
               <label>速度<select value={speed} onChange={e => setSpeed(Number(e.target.value))}>{SPEEDS.map(n => <option key={n} value={n}>{n}×</option>)}</select></label>
-              <span className="v3-autosave" title="自动保存时间">{settings.autosave ? `自动保存 ${savedAt ? new Date(savedAt).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}) : '待保存'}` : '自动保存已关闭'}</span>
             </> : <button className="v3-primary" onClick={() => startRun()}>▶ 开始模拟</button>}
+            <details className="v9-controls-more"><summary>更多操作</summary><div>
+            <button disabled={running || state?.status === 'finished'} onClick={() => setState(old => old ? step(old, 1) : old)}>单步</button>
             <button onClick={pauseAndEdit}>暂停并编辑</button>
             <button onClick={resetSim}>重置</button>
             <button onClick={saveNow}>保存</button>
             <button disabled={!state || !state.replay?.frames.length} title="回放本次模拟的逐分钟快照与事件日志" onClick={beginReplay}>回放</button>
-            <button className={eventsOpen ? 'active' : ''} onClick={() => setEventsOpen(v => !v)}>事件时间线 {eventCount}</button>
             <button className={moneyOpen ? 'active' : ''} onClick={() => setMoneyOpen(v => !v)}>资金明细 {moneyTransactions.length}</button>
             <label className="v3-check"><input type="checkbox" checked={settings.sound} onChange={e => patchSettings({sound: e.target.checked})}/>声音</label>
+            <span className="v3-autosave" title="自动保存时间">{settings.autosave ? `自动保存 ${savedAt ? new Date(savedAt).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}) : '待保存'}` : '自动保存已关闭'}</span>
+            </div></details>
+            <button className={eventsOpen ? 'active' : ''} onClick={() => setEventsOpen(v => !v)} aria-expanded={eventsOpen}>事件时间线 {eventCount} {eventsOpen?'收起':'展开'}</button>
           </div>
         </div>
         <div className="v3-timeline"><i style={{width: `${visibleProgress}%`}}/><em>{Math.round(visibleProgress)}%</em></div>
+        {!!relevantActions.length && <div className="v3-interventions v9-relevant-actions"><b>当前可用应对</b><div>{relevantActions.map(action=><button key={action.kind} onClick={()=>act(action.kind)}>{action.label}</button>)}</div></div>}
+        <details className="v9-all-actions"><summary>全部应对措施</summary><div>{actions.map(action=><button key={action.kind} disabled={!state || state.status==='finished'} onClick={()=>act(action.kind)}>{action.label}</button>)}</div></details>
         {moneyOpen && <section className="v7-money" aria-label="资金明细">
           <header><b>资金使用记录</b><span>{realMode?'现实仿真 · 用户输入价格':budgetMode === 'unlimited' ? '游戏无限资金 · 费用照常记录' : '游戏预算挑战'}</span></header>
           <div className="v7-money-stats"><span>活动预算 <b>{realMode&&realFinance.budgetMode==='off'?'未启用':money(activeBudget)}</b></span><span>配置及人员 <b>{money(used)}</b></span><span>应急支出 <b>{money(state?.extraSpend ?? 0)}</b></span><span>剩余 <b>{realMode&&realFinance.budgetMode==='off'?'—':money(Math.max(0,activeBudget-used-(state?.extraSpend ?? 0)))}</b></span><span>超额 <b>{realMode&&realFinance.budgetMode==='off'?'—':money(Math.max(0,used+(state?.extraSpend ?? 0)-activeBudget))}</b></span></div>
-          <small>{realMode?'未填写的价格按未知金额 0 暂计；请核对来源与更新时间。':'设施金额来自游戏配置；应急金额来自模拟交易。'}</small>
+          <small>{realMode?`已报价设施计入合计；${unpricedFacilities} 项设施价格待确认。请核对来源与更新时间。`:'设施金额来自游戏配置；应急金额来自模拟交易。'}</small>
           <div className="v7-money-list">{moneyTransactions.map(entry => <button key={entry.id} onClick={() => {if(entry.eventId){setEventsOpen(true);setTimelineSelected(entry.eventId)}else if(entry.category==='facility'){setSelected(entry.sourceId);setPanelOpen(true)}}}>
             <span>{entry.category === 'facility' || entry.category === 'refund' ? '配置' : `${entry.at}′`}</span><b>{entry.title}</b><em>{entry.category === 'facility' ? '设施' : entry.category === 'refund' ? '返还' : entry.category === 'action' ? '应对' : '事件'}</em><strong>{money(entry.amount)}</strong>
           </button>)}{!moneyTransactions.length && <p>尚无设施或应急交易。</p>}</div>
         </section>}
         {eventsOpen && <>
           <section className="v7-event-stream" aria-label="活动事件时间线">
-            <header><b>活动时间线</b><span>最近事件优先，点击查看详情与定位</span></header>
+            <header><b>活动时间线</b><button onClick={()=>setEventsOpen(false)} aria-label="收起活动时间线">收起</button></header>
             <div className="v7-event-filters">{([['all','全部'],['positive','顺利'],['negative','问题'],['progress','进程'],['warning','预警'],['action','操作'],['info','信息']] as const).map(([key,label]) => <button key={key} className={timelineFilter===key?'active':''} onClick={() => setTimelineFilter(key)}>{label}</button>)}</div>
-            <div className="v7-event-list">{[...timelineEvents].reverse().map(entry => {const tone=timelineTone(entry),expanded=timelineSelected===entry.id,related=entry.directorId===undefined?[]:(state?.replay?.events??[]).filter(other=>other.id!==entry.id&&other.directorId===entry.directorId);return <article key={entry.id} className={`v7-event ${tone}`}>
+            <div className="v7-event-list">{[...timelineEvents].sort((a,b)=>b.at-a.at||b.id-a.id).filter((entry,index,list)=>list.findIndex(other=>other.at===entry.at&&other.title===entry.title&&other.kind===entry.kind)===index).map(entry => {const tone=timelineTone(entry),expanded=timelineSelected===entry.id,related=entry.directorId===undefined?[]:(state?.replay?.events??[]).filter(other=>other.id!==entry.id&&other.directorId===entry.directorId);return <article key={entry.id} className={`v7-event ${tone}`}>
               <button className="v7-event-summary" onClick={() => setTimelineSelected(expanded?null:entry.id)} aria-expanded={expanded}><time>{entry.at}′</time><span className="v7-event-marker" aria-hidden="true">{{positive:'✓',negative:'!',progress:'▶',warning:'⚠',action:'◆',info:'i'}[tone]}</span><b>{entry.title}</b><em>{{positive:'顺利',negative:'问题',progress:'进程',warning:'预警',action:'操作',info:'信息'}[tone]}</em></button>
               {expanded && <div className="v7-event-detail"><p>{entry.detail}</p><span>位置：{{entrance:'入口',checkin:'签到区',queue:'排队区',stage:'主舞台',rest:'休息区',medical:'医疗点',venue:'活动场地',field:'户外区域'}[entry.location??'venue']}</span>{entry.directorId!==undefined&&<span>处理状态：{{warning:'预警中',active:'进行中',resolved:'已结束',prevented:'已化解'}[state?.director?.events.find(event=>event.id===entry.directorId)?.status??'resolved']}</span>}{entry.reason&&<span>原因：{entry.reason}</span>}{entry.effects?.length?<span>影响：{entry.effects.join('；')}</span>:null}{entry.chain?.length?<span>发展：{entry.chain.join(' → ')}</span>:null}{related.length>0&&<span>关联：{related.map(item=>`${item.at}′ ${item.title}`).join('；')}</span>}{entry.cost?<span>费用：{money(entry.cost)}</span>:null}<button onClick={() => focusReplaySpot(entry.location)}>定位现场</button></div>}
             </article>})}{!timelineEvents.length&&<p>当前筛选下暂无事件。</p>}</div>
           </section>
           <div className="v3-events">
-          <div className="v3-interventions">
-            <b>应对措施</b>
-            <div>{actions.map(a => <button key={a.kind} disabled={!state || state.status === 'finished'} onClick={() => act(a.kind)}>{a.label}</button>)}</div>
-          </div>
           {state?.status === 'finished' && <div className="v3-report">
             <strong>{realMode?'现实仿真结果':`游戏模拟结果 · ${rating.score}/100`}</strong>
             {!realMode&&<span>场地 {rating.readiness}/40 · 预算 {rating.budget}/20 · 签到 {rating.service}/25 · 进度 {rating.schedule}/15</span>}
@@ -2319,7 +2338,7 @@ function App() {
         </section>
         {realMode&&<section className="v8-finance-settings">
           <h3>现实费用与预算</h3>
-          <p className="v3-hint">价格由组织者填写；未填金额暂按 0 汇总并标记为未知。设施价格不会读取游戏金币。</p>
+          <p className="v3-hint">仅已报价设施计入成本；{unpricedFacilities} 项价格待确认。免费使用和不计入成本须明确标记，设施价格不会读取游戏金币。</p>
           <label>预算规则<select value={realFinance.budgetMode} onChange={e=>setLayout(prev=>({...prev,simulationFinance:{...defaultSimulationFinance,...prev.simulationFinance,budgetMode:e.target.value as typeof realFinance.budgetMode}}))}><option value="unlimited">无限资金 · 仍记录成本</option><option value="limited">指定预算 · 阻止超支</option><option value="off">不启用预算 · 仅模拟现场</option></select></label>
           {([['budget','现实预算 / ¥'],['staffHourlyWage','每名员工时薪 / ¥'],['staffHours','员工工时 / 小时'],['overtimeCost','加班费用 / ¥'],['mealCost','人员餐饮 / ¥'],['transportCost','人员交通 / ¥'],['venueRent','场地每小时租金 / ¥'],['venueHours','场地使用时长 / 小时'],['venueCapacityOverride','实际场地容量 / 人（0 = 模板假设）'],['cleaningCost','清洁费 / ¥'],['powerCost','电力费 / ¥'],['deposit','押金 / ¥'],['otherCost','其他费用 / ¥']] as [Exclude<keyof typeof realFinance,'budgetMode'|'actionCosts'|'incidentCosts'>,string][]).map(([key,label])=><label key={key}>{label}<input type="number" min="0" step="any" value={realFinance[key]} onChange={e=>setLayout(prev=>({...prev,simulationFinance:{...defaultSimulationFinance,...prev.simulationFinance,[key]:Math.max(0,Number(e.target.value)||0)}}))}/></label>)}
           <details><summary>应急措施与突发费用参考</summary><p className="v3-hint">留空或 0 表示费用未知，仿真不会套用游戏金币价格。</p>
