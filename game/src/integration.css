@@ -3,3 +3,5 @@
 .v3-app .v6-back{top:80px;left:12px;bottom:auto}
 .v3-app .v6-import-button{top:80px;left:145px;bottom:auto}
 @media(max-width:700px){.v3-app .v6-back,.v3-app .v6-import-button{top:auto;bottom:12px}.v3-app .v6-back{left:12px}.v3-app .v6-import-button{left:auto;right:12px}}
+.v3-app .v6-back,.v3-app .v6-import-button{background:rgba(251,252,249,.95);border-color:#d5dfd5;border-radius:8px;color:#294d3d;font-weight:650;box-shadow:0 2px 8px rgba(25,48,34,.07);transition:background-color .18s,border-color .18s,box-shadow .18s,transform .18s}
+.v3-app .v6-back:hover,.v3-app .v6-import-button:hover{background:#fff;border-color:#96b1a0;box-shadow:0 5px 12px rgba(25,48,34,.12);transform:translateY(-1px)}

@@ -1621,7 +1621,7 @@ function App() {
           <b>{layout.activity.title}</b>
           <span>{sceneNames[layout.activity.scene] ?? layout.activity.scene} · {venue.name} · {variantInfo.label} · {indoor ? '室内' : '室外'} {layout.size}×{layout.size}m</span>
         </div>
-        <div className="v8-mode-switch" aria-label="运行模式"><button className={!realMode?'active':''} onClick={()=>switchOperatingMode('game')}>🎮 游戏模式</button><button className={realMode?'active':''} onClick={()=>switchOperatingMode('simulation')}>📊 现实仿真</button></div>
+        <div className="v8-mode-switch" aria-label="运行模式"><button className={!realMode?'active':''} onClick={()=>switchOperatingMode('game')}>游戏模式</button><button className={realMode?'active':''} onClick={()=>switchOperatingMode('simulation')}>现实仿真</button></div>
         <div className="v3-metrics">
           <span className="v3-money">{realMode?'现实成本':budgetMode === 'unlimited' ? '游戏金币 ∞' : '游戏金币'} <b>{realMode?money(used):`${(budgetMode === 'unlimited' ? used : left).toLocaleString()} 币`}</b></span>
           <span>{realMode?realFinance.budgetMode==='off'?'不启用预算':realFinance.budgetMode==='unlimited'?'预算仅参考':'限定预算':'预算'} <b>{realMode&&realFinance.budgetMode==='off'?'—':activeBudget.toLocaleString()}</b></span>
