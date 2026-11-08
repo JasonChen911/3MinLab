@@ -1,7 +1,7 @@
 import {describe,expect,it} from 'vitest';
-import {CATALOG,capacityOf,defaultSimulationFinance,facilityParameters,freshLayout,intervene,itemCost,layoutCost,normalizeLayout,simulationItemCost,start} from './game';
+import {CATALOG,capacityOf,defaultSimulationFinance,facilityParameters,freshLayout,intervene,itemCost,layoutCost,normalizeLayout,operatingIssues,simulationItemCost,start} from './game';
 import {analyzeFacilities} from './facilities';
-import {upsertParameterPreset} from './parameterLibrary';
+import {priceNeedsReview,upsertParameterPreset} from './parameterLibrary';
 
 describe('V8 两种规则与设施方案',()=>{
   it('现实报价、人员和场地费用不改变游戏固定价格',()=>{
@@ -61,5 +61,17 @@ describe('V8 两种规则与设施方案',()=>{
     layout.simulationFinance.actionCosts={...defaultSimulationFinance.actionCosts,reserve:950};
     const quoted=intervene(start(layout),'reserve');
     expect(quoted.extraSpend).toBe(950);
+  });
+  it('现实预检采用实际预算和容量，价格过期需复核',()=>{
+    const layout=freshLayout('conference');
+    layout.operatingMode='simulation';
+    layout.activity.people=101;
+    layout.simulationFinance={...defaultSimulationFinance,budgetMode:'limited',budget:100,venueCapacityOverride:100,venueRent:200};
+    const findings=operatingIssues(layout);
+    expect(findings).toContain('现实配置成本超出指定预算');
+    expect(findings).toContain('场地容量 100 人，小于参与人数 101 人');
+    expect(findings).not.toContain('设施费用超出活动预算');
+    expect(priceNeedsReview('2026-01-01',Date.parse('2026-11-08'))).toBe(true);
+    expect(priceNeedsReview('2026-11-01',Date.parse('2026-11-08'))).toBe(false);
   });
 });

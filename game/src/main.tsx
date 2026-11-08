@@ -3,7 +3,7 @@ import {createRoot} from 'react-dom/client';
 import Scene3D, {type CameraAction, type Quality, type Tool} from './Scene3D';
 import type {DebugStats} from './world/debug';
 import {
-  CATALOG, ROLE_LABELS, alignItems, applyDifficulty, batchMove, batchRotate, bounds, capacityOf, cost, evaluate, freshLayout, importBackup, issues, itemCost, placement, facilityParameters, layoutCost, simulationItemCost, simulationStaffCost, simulationVenueCost, defaultSimulationFinance,
+  CATALOG, ROLE_LABELS, alignItems, applyDifficulty, batchMove, batchRotate, bounds, capacityOf, cost, evaluate, freshLayout, importBackup, operatingIssues, itemCost, placement, facilityParameters, layoutCost, simulationItemCost, simulationStaffCost, simulationVenueCost, defaultSimulationFinance,
   reconcile, roleCounts, start, step, intervene,
   type BatchResult, type Facility, type FacilityParameters, type Intervention, type Item, type Kind, type Layout, type PersonSave, type SimulationState, type WeatherKind,
 } from './game';
@@ -37,7 +37,7 @@ import {analyticsCsv, buildAnalytics, type AnalyticsReport, type TrajectoryGroup
 import type {LightingPreset} from './world/city';
 import {layoutFromPlan,layoutFromTemplate,readBridge,saveResult} from './integration';
 import {updateBuildLedger} from './engine/buildMoney';
-import {loadParameterLibrary,saveParameterLibrary,upsertParameterPreset,type ParameterPreset} from './parameterLibrary';
+import {loadParameterLibrary,priceNeedsReview,saveParameterLibrary,upsertParameterPreset,type ParameterPreset} from './parameterLibrary';
 import './style.css';
 import './v3.css';
 import './integration.css';
@@ -516,7 +516,7 @@ function App() {
   const budgetMode = layout.budgetMode ?? 'unlimited';
   const realMode = layout.operatingMode === 'simulation';
   const realFinance = {...defaultSimulationFinance,...layout.simulationFinance};
-  const warnings = issues(layout);
+  const warnings = operatingIssues(layout);
   const facility = state?.snapshot.facility ?? analyzeFacilities(layout, CATALOG);
   const alerts = directorWarnings(state);
   const activeDirectorEvents = directorActiveEvents(state);
@@ -1048,7 +1048,7 @@ function App() {
       setLastReward(null);
       persist({...target, run: next, people: undefined}, target.challenge ? `开始挑战：${target.challenge.name}` : '开始模拟');
        awardPending.current = target.operatingMode !== 'simulation';
-      const targetWarnings = issues(target);
+      const targetWarnings = operatingIssues(target);
       setMessage(target.challenge
         ? `挑战「${target.challenge.name}」已开始：${target.challenge.goals.length} 项目标、${target.challenge.fails.length} 项失败条件。`
         : targetWarnings.length ? `模拟已启动；场地有 ${targetWarnings.length} 项搭建提醒。` : '模拟已启动，人物与车辆开始活动。');
@@ -1607,8 +1607,8 @@ function App() {
         <div className="v3-activity">
           <b>{layout.activity.title}</b>
           <span>{sceneNames[layout.activity.scene] ?? layout.activity.scene} · {venue.name} · {variantInfo.label} · {indoor ? '室内' : '室外'} {layout.size}×{layout.size}m</span>
-          <div className="v8-mode-switch" aria-label="运行模式"><button className={!realMode?'active':''} onClick={()=>switchOperatingMode('game')}>🎮 游戏模式</button><button className={realMode?'active':''} onClick={()=>switchOperatingMode('simulation')}>📊 现实仿真</button></div>
         </div>
+        <div className="v8-mode-switch" aria-label="运行模式"><button className={!realMode?'active':''} onClick={()=>switchOperatingMode('game')}>🎮 游戏模式</button><button className={realMode?'active':''} onClick={()=>switchOperatingMode('simulation')}>📊 现实仿真</button></div>
         <div className="v3-metrics">
           <span className="v3-money">{realMode?'现实成本':budgetMode === 'unlimited' ? '游戏金币 ∞' : '游戏金币'} <b>{realMode?money(used):`${(budgetMode === 'unlimited' ? used : left).toLocaleString()} 币`}</b></span>
           <span>{realMode?realFinance.budgetMode==='off'?'不启用预算':realFinance.budgetMode==='unlimited'?'预算仅参考':'限定预算':'预算'} <b>{realMode&&realFinance.budgetMode==='off'?'—':activeBudget.toLocaleString()}</b></span>
@@ -1815,6 +1815,7 @@ function App() {
               <label>价格更新时间<input type="date" disabled={!editable||chosenLocked} value={facilityParameters(chosen).updatedAt} onChange={e=>changeFacilityParameter(chosen,'updatedAt',e.target.value)}/></label>
             </div>
             <p>本设施现实成本 <b>{money(simulationItemCost(chosen))}</b></p>
+            {priceNeedsReview(facilityParameters(chosen).updatedAt)&&<p className="v8-price-warning">价格未标更新时间或已超过 180 天，请重新核对来源。</p>}
             <div className="v3-row"><button disabled={!editable||chosenLocked} onClick={()=>saveFacilityPreset(chosen)}>保存到参数方案库</button><select aria-label="调用参数方案" disabled={!editable||chosenLocked} value="" onChange={e=>{const preset=parameterLibrary.find(entry=>entry.id===e.target.value);if(preset)change(chosen.id,{parameters:preset.parameters});}}><option value="">调用已存方案…</option>{parameterLibrary.filter(entry=>entry.kind===chosen.kind).map(entry=><option key={entry.id} value={entry.id}>{entry.name} · {entry.parameters.updatedAt||entry.savedAt}</option>)}</select></div>
           </section>}
           <div className="v3-status-row"><span>运行状态</span><b className={runtimeBad ? 'bad' : ''}>{runtime}</b></div>
@@ -2330,7 +2331,7 @@ function App() {
         {realMode&&<section className="v8-library-settings">
           <h3>设施参数方案库 · {parameterLibrary.length}</h3>
           <p className="v3-hint">在场地选中设施后可保存或调用同类方案；地区、供应商、价格来源和更新时间会一并保留。</p>
-          {parameterLibrary.length?<ul>{parameterLibrary.map(entry=><li key={entry.id}><span><b>{entry.name}</b><small>{entry.parameters.region||'未标地区'} · {entry.parameters.supplier||'未标供应商'} · {entry.parameters.source} · 更新 {entry.parameters.updatedAt||'未记录'}</small></span><button className="danger" onClick={()=>{if(!confirm(`删除参数方案「${entry.name}」？`))return;const next=parameterLibrary.filter(value=>value.id!==entry.id);saveParameterLibrary(next);setParameterLibrary(next);}}>删除</button></li>)}</ul>:<p className="v3-hint">暂无方案。选中设施，填写参数与来源后保存。</p>}
+          {parameterLibrary.length?<ul>{parameterLibrary.map(entry=><li key={entry.id}><span><b>{entry.name}</b><small>{entry.parameters.region||'未标地区'} · {entry.parameters.supplier||'未标供应商'} · {entry.parameters.source} · 更新 {entry.parameters.updatedAt||'未记录'}{priceNeedsReview(entry.parameters.updatedAt)?' · 需复核':''}</small></span><button className="danger" onClick={()=>{if(!confirm(`删除参数方案「${entry.name}」？`))return;const next=parameterLibrary.filter(value=>value.id!==entry.id);saveParameterLibrary(next);setParameterLibrary(next);}}>删除</button></li>)}</ul>:<p className="v3-hint">暂无方案。选中设施，填写参数与来源后保存。</p>}
         </section>}
         {!realMode&&<section>
           <h3>难度与成长</h3>

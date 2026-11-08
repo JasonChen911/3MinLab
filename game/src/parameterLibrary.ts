@@ -2,6 +2,10 @@ import type {FacilityParameters, Kind} from './game';
 
 const key = '3minlab:facility-parameter-library:v1';
 export interface ParameterPreset {id:string; name:string; kind:Kind; parameters:FacilityParameters; savedAt:string}
+export function priceNeedsReview(updatedAt:string,now=Date.now()):boolean {
+  const date=Date.parse(updatedAt);
+  return !Number.isFinite(date)||now-date>180*24*60*60*1000;
+}
 
 export function loadParameterLibrary():ParameterPreset[] {
   try {
