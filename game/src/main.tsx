@@ -4,7 +4,7 @@ import Scene3D, {type CameraAction, type Quality, type Tool} from './Scene3D';
 import type {DebugStats} from './world/debug';
 import {
   CATALOG, ROLE_LABELS, alignItems, applyDifficulty, batchMove, batchRotate, bounds, capacityOf, cost, evaluate, freshLayout, importBackup, operatingIssues, itemCost, placement, facilityParameters, facilityPriceStatus, layoutCost, simulationItemCost, simulationStaffCost, simulationVenueCost, defaultSimulationFinance,
-  reconcile, roleCounts, start, step, intervene,
+  reconcile, roleCounts, rotateItem, start, step, intervene,
   type BatchResult, type Facility, type FacilityParameters, type Intervention, type Item, type Kind, type Layout, type PersonSave, type SimulationState, type WeatherKind,
 } from './game';
 import {PERSON_STATE_LABELS, type PersonInfo} from './world/people';
@@ -60,7 +60,7 @@ const toolCategories: Record<'build' | 'road' | 'decor', string[]> = {
   decor: ['绿植', '装饰'],
 };
 const tools: {id: Tool; label: string; icon: string; key: string; hint: string}[] = [
-  {id: 'select', label: '选择', icon: '↖', key: 'V', hint: '左键选择/拖动设施，拖动空地平移；Shift 拖框多选'},
+  {id: 'select', label: '选择', icon: '↖', key: 'V', hint: '左键拖动设施移动，右键拖动设施原地旋转；Shift 拖框多选'},
   {id: 'observe', label: '观察', icon: '◎', key: 'O', hint: '仅观察场景：不选中、不移动设施'},
   {id: 'build', label: '建造', icon: '▦', key: 'B', hint: '舞台、观众、设备与管理设施'},
   {id: 'road', label: '道路', icon: '═', key: 'N', hint: '主干道与人行小路'},
@@ -941,6 +941,10 @@ function App() {
     if (mode !== 'build') { setMessage('请先暂停模拟并切回建造模式。'); return; }
     applyBatch(batchRotate(layout, ids, steps, budgetMode));
   };
+  const rotateDirectly = (itemId: string, angle: number) => {
+    if (mode !== 'build') { setMessage('请先暂停模拟并切回建造模式。'); return false; }
+    return applyBatch(rotateItem(layout, itemId, angle, budgetMode));
+  };
   const alignMany = (ids: string[], axis: 'x' | 'z') => {
     if (mode !== 'build') { setMessage('请先暂停模拟并切回建造模式。'); return; }
     applyBatch(alignItems(layout, ids, axis, budgetMode));
@@ -1599,6 +1603,7 @@ function App() {
           onMove={(itemId, x, z) => change(itemId, {x, z})}
           onBatchMove={moveMany}
           onBatchRotate={rotateMany}
+          onRotate={rotateDirectly}
           onDelete={remove}
           onDeleteMany={removeMany}
           onPreview={setPreview}
@@ -1812,7 +1817,7 @@ function App() {
             <label>Z 坐标<input type="number" value={chosen.z} disabled={!editable || chosenLocked} onChange={e => { const n = Number(e.target.value); if (Number.isFinite(n)) change(chosen.id, {z: n}); }}/></label>
             <label>占地<input value={`${sizeText(bounds(chosen).w)} × ${sizeText(bounds(chosen).d)}`} disabled/></label>
             <label>容量<input value={capacityOf(chosen,realMode) || '—'} disabled/></label>
-            <label>旋转<select value={chosen.rotation} disabled={!editable || chosenLocked} onChange={e => change(chosen.id, {rotation: Number(e.target.value)})}>{[0, 90, 180, 270].map(n => <option key={n} value={n}>{n}°</option>)}</select></label>
+            <label>旋转<select value={chosen.rotation} disabled={!editable || chosenLocked} onChange={e => change(chosen.id, {rotation: Number(e.target.value)})}>{![0, 90, 180, 270].includes(chosen.rotation) && <option value={chosen.rotation}>{chosen.rotation}° · 手动角度</option>}{[0, 90, 180, 270].map(n => <option key={n} value={n}>{n}°</option>)}</select></label>
             <label>高度<input type="range" min=".6" max="2.2" step=".1" value={chosen.height ?? 1} disabled={!editable || chosenLocked} onChange={e => change(chosen.id, {height: Number(e.target.value)})}/></label>
             <label className="wide">尺寸 <span>{(chosen.scale ?? 1).toFixed(1)}×</span><input type="range" min=".5" max="2" step=".1" value={chosen.scale ?? 1} disabled={!editable || chosenLocked} onChange={e => change(chosen.id, {scale: Number(e.target.value)})}/></label>
           </div>
@@ -1841,7 +1846,7 @@ function App() {
             {physicsFor(chosen.kind).anchorable && <button disabled={!editable || chosenLocked} onClick={() => change(chosen.id, {anchored: !chosen.anchored})}>{chosen.anchored ? '解除固定' : '固定帐篷'}</button>}
             <button className="danger" disabled={!editable || chosenLocked} onClick={() => remove(chosen.id)}>删除</button>
           </div>
-          <p className="v3-hint">快捷键 R 旋转 · Delete 删除 · 双击设施打开此面板。</p>
+          <p className="v3-hint">右键拖动物体原地旋转；右键单击或按 R 旋转 90°。Delete 删除，双击打开属性。</p>
         </div> : <div className="v3-panel-body">
           <div className="v3-venue-info">
             <h4>场地信息</h4>
@@ -1896,7 +1901,7 @@ function App() {
           </div>}
           <div className="v3-tips">
             <b>操作提示</b>
-            <span>左键选择 / 拖动设施 · 拖动空地平移 · Shift 拖框多选</span>
+            <span>左键拖动设施移动 · 右键拖动设施原地旋转 · Shift 拖框多选</span>
             <span>中键拖动平移 · Space + 左键平移</span>
             <span>滚轮朝光标缩放 · WASD 移动 · F 回到场地</span>
             <span>双击设施打开属性编辑 · 双击场地空白处取消</span>
@@ -2408,7 +2413,7 @@ function App() {
           <label>平移速度 <span className="v3-value">{settings.panSensitivity.toFixed(1)}×</span><input type="range" min="0.4" max="2" step="0.1" value={settings.panSensitivity} onChange={e => patchSettings({panSensitivity: Number(e.target.value)})}/></label>
           <label>缩放速度 <span className="v3-value">{settings.zoomSensitivity.toFixed(1)}×</span><input type="range" min="0.4" max="2" step="0.1" value={settings.zoomSensitivity} onChange={e => patchSettings({zoomSensitivity: Number(e.target.value)})}/></label>
           <label className="v3-check"><input type="checkbox" checked={settings.invertRotation} onChange={e => patchSettings({invertRotation:e.target.checked})}/>反向水平旋转</label>
-          <p className="v3-hint">左键拖动空地平移，右键拖动水平旋转，中键拖动平移，滚轮缩放；镜头俯仰受限。Shift + 左键拖框多选。</p>
+          <p className="v3-hint">右键拖动设施原地旋转，右键拖动空地转动镜头；左键拖动空地或中键拖动平移，滚轮缩放。Shift + 左键拖框多选。</p>
           <label className="v3-check"><input type="checkbox" checked={settings.snap} onChange={e => patchSettings({snap: e.target.checked})}/>网格吸附（关闭后自由放置）</label>
           <label className="v3-check"><input type="checkbox" checked={settings.shadows} onChange={e => patchSettings({shadows: e.target.checked})}/>日光阴影</label>
           <label className="v3-check"><input type="checkbox" checked={settings.sound} onChange={e => patchSettings({sound: e.target.checked})}/>现场提示音</label>

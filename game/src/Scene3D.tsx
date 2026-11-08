@@ -65,6 +65,7 @@ type Props = {
   onMove: (id: string, x: number, z: number) => boolean;
   onBatchMove: (ids: string[], dx: number, dz: number) => boolean;
   onBatchRotate: (ids: string[], steps: number) => void;
+  onRotate: (id: string, rotation: number) => boolean;
   onDelete: (id: string) => void;
   onDeleteMany: (ids: string[]) => void;
   onPreview: (message: string) => void;
@@ -244,8 +245,10 @@ function outlineFor(item: Item, color: number, opacity: number, flat = false): T
   const group = new THREE.Group();
   const b = bounds(item);
   const height = Math.max(2, kindHeight(item.kind) * itemHeight(item));
+  const definition = CATALOG[item.kind];
+  const scale = item.scale ?? 1;
   const box = new THREE.LineSegments(
-    new THREE.EdgesGeometry(new THREE.BoxGeometry(b.w + .28, height, b.d + .28)),
+    new THREE.EdgesGeometry(new THREE.BoxGeometry(definition.w * scale + .28, height, definition.d * scale + .28)),
     new THREE.LineBasicMaterial({color, transparent: true, opacity}),
   );
   box.position.set(item.x, height / 2, item.z);
@@ -263,10 +266,10 @@ function outlineFor(item: Item, color: number, opacity: number, flat = false): T
   return group;
 }
 
-export default function Scene3D({layout, state, selected, selectedMany, place, tool, mode, simSpeed, cameraAction, quality, shadows, sensitivity, panSensitivity, zoomSensitivity, invertRotation, snap, personSelected, debug, replayPeople, restorePeople, analysisMarks, analysisGhosts, lighting, showcase, autoRotate, onSelect, onSelectMany, onEdit, onPlace, onMove, onBatchMove, onBatchRotate, onDelete, onDeleteMany, onPreview, onPersonSelect, onPersonInfo, onPeopleSnapshot, onPeopleProvider, onNudge, onDebugStats, onCaptureReady}: Props) {
+export default function Scene3D({layout, state, selected, selectedMany, place, tool, mode, simSpeed, cameraAction, quality, shadows, sensitivity, panSensitivity, zoomSensitivity, invertRotation, snap, personSelected, debug, replayPeople, restorePeople, analysisMarks, analysisGhosts, lighting, showcase, autoRotate, onSelect, onSelectMany, onEdit, onPlace, onMove, onBatchMove, onBatchRotate, onRotate, onDelete, onDeleteMany, onPreview, onPersonSelect, onPersonInfo, onPeopleSnapshot, onPeopleProvider, onNudge, onDebugStats, onCaptureReady}: Props) {
   const host = useRef<HTMLDivElement>(null);
   const world = useRef<World | null>(null);
-  const callbackSource = {layout, state, selected, selectedMany, personSelected, place, tool, mode, simSpeed, snap, showcase, replayPeople, onSelect, onSelectMany, onEdit, onPlace, onMove, onBatchMove, onBatchRotate, onDelete, onDeleteMany, onPreview, onPersonSelect, onPersonInfo, onPeopleSnapshot, onPeopleProvider, onNudge, onDebugStats, onCaptureReady};
+  const callbackSource = {layout, state, selected, selectedMany, personSelected, place, tool, mode, simSpeed, snap, showcase, replayPeople, onSelect, onSelectMany, onEdit, onPlace, onMove, onBatchMove, onBatchRotate, onRotate, onDelete, onDeleteMany, onPreview, onPersonSelect, onPersonInfo, onPeopleSnapshot, onPeopleProvider, onNudge, onDebugStats, onCaptureReady};
   const callbacks = useRef(callbackSource);
   callbacks.current = callbackSource;
   const setupKey = useRef('');
@@ -489,7 +492,7 @@ export default function Scene3D({layout, state, selected, selectedMany, place, t
       const outline = outlineFor(item, color, .85, true);
       current.hoverOutline.add(outline);
       renderer.domElement.style.cursor = deleting ? 'not-allowed' : item.locked ? 'default' : 'grab';
-      callbacks.current.onPreview(`${CATALOG[item.kind].name} · ${callbacks.current.layout.operatingMode==='simulation'?'现实成本 ¥'+simulationItemCost(item)+'（未报价项按未知暂计）':'游戏金币 '+itemCost(item)} · ${item.locked ? '已锁定' : deleting ? '点击删除' : '拖动移动，双击编辑，右键旋转，Shift 点击多选'}`);
+      callbacks.current.onPreview(`${CATALOG[item.kind].name} · ${callbacks.current.layout.operatingMode==='simulation'?'现实成本 ¥'+simulationItemCost(item)+'（未报价项按未知暂计）':'游戏金币 '+itemCost(item)} · ${item.locked ? '已锁定' : deleting ? '点击删除' : '左键拖动移动，右键拖动原地旋转，双击编辑'}`);
     };
 
     const hideMarquee = () => {
@@ -506,6 +509,11 @@ export default function Scene3D({layout, state, selected, selectedMany, place, t
     };
 
     const cancelInteraction = () => {
+      if (rotationDrag) {
+        const object = current.facilities.children.find(o => o.userData.id === rotationDrag!.id);
+        if (object) object.rotation.y = THREE.MathUtils.degToRad(rotationDrag.original);
+        rotationDrag = null;
+      }
       if (current.drag) revertDrag();
       current.drag = null;
       current.dragCandidate = null;
@@ -551,9 +559,23 @@ export default function Scene3D({layout, state, selected, selectedMany, place, t
     };
 
     let groundPan: {x:number;y:number}|null=null;
+    let rotationDrag: {id:string;startX:number;original:number;preview:number;moved:boolean}|null=null;
     const onPointerDown = (event: PointerEvent) => {
       current.down = {x: event.clientX, y: event.clientY, button: event.button};
       if (event.button === 2) {
+        const c = callbacks.current;
+        const hit = c.mode === 'build' && c.tool === 'select' ? findItem(event) : null;
+        const item = hit && c.layout.items.find(candidate => candidate.id === hit.id);
+        if (item && !item.locked) {
+          rotationDrag = {id:item.id,startX:event.clientX,original:item.rotation,preview:item.rotation,moved:false};
+          c.onSelect(item.id);
+          c.onSelectMany([item.id]);
+          controls.enabled = false;
+          renderer.domElement.style.cursor = 'ew-resize';
+          try { renderer.domElement.setPointerCapture(event.pointerId); } catch { /* pointer capture unavailable */ }
+          event.stopImmediatePropagation();
+          return;
+        }
         current.rightDown = true;
         current.rightStart = {x: event.clientX, y: event.clientY};
         return;
@@ -605,6 +627,25 @@ export default function Scene3D({layout, state, selected, selectedMany, place, t
 
     const onPointerMove = (event: PointerEvent) => {
       current.pointerInside = true;
+      if (rotationDrag) {
+        const dx = event.clientX - rotationDrag.startX;
+        if (Math.abs(dx) > 4) rotationDrag.moved = true;
+        if (rotationDrag.moved) {
+          const step = event.shiftKey ? 15 : 5;
+          const angle = ((Math.round((rotationDrag.original + dx * .6) / step) * step) % 360 + 360) % 360;
+          rotationDrag.preview = angle;
+          const object = current.facilities.children.find(o => o.userData.id === rotationDrag!.id);
+          if (object) object.rotation.y = THREE.MathUtils.degToRad(angle);
+          const item = callbacks.current.layout.items.find(candidate => candidate.id === rotationDrag!.id);
+          if (item) {
+            clearUniqueGroup(current.selection);
+            current.selection.add(outlineFor({...item, rotation:angle}, 0x2f7de1, .95));
+          }
+          callbacks.current.onPreview(`原地旋转 ${angle}° · 松开保存，按 Esc 取消${event.shiftKey ? ' · 15° 吸附' : ''}`);
+        }
+        event.stopImmediatePropagation();
+        return;
+      }
       if(groundPan&&current.down?.button===0){
         const dx=event.clientX-groundPan.x,dy=event.clientY-groundPan.y;
         groundPan={x:event.clientX,y:event.clientY};
@@ -684,15 +725,39 @@ export default function Scene3D({layout, state, selected, selectedMany, place, t
     };
 
     const onPointerUp = (event: PointerEvent) => {
+      if (event.button === 2 && rotationDrag) {
+        const drag = rotationDrag;
+        rotationDrag = null;
+        controls.enabled = true;
+        current.down = null;
+        renderer.domElement.style.cursor = 'grab';
+        try { renderer.domElement.releasePointerCapture(event.pointerId); } catch { /* capture already released */ }
+        if (drag.moved) {
+          const ok = callbacks.current.onRotate(drag.id, drag.preview);
+          if (!ok) {
+            const object = current.facilities.children.find(o => o.userData.id === drag.id);
+            if (object) object.rotation.y = THREE.MathUtils.degToRad(drag.original);
+            const item = callbacks.current.layout.items.find(candidate => candidate.id === drag.id);
+            if (item) {
+              clearUniqueGroup(current.selection);
+              current.selection.add(outlineFor(item, 0x2f7de1, .95));
+            }
+          }
+          callbacks.current.onPreview(ok ? `已原地旋转至 ${drag.preview}°` : '旋转后位置不可用，已恢复原角度。');
+        } else callbacks.current.onBatchRotate([drag.id], 1);
+        event.stopImmediatePropagation();
+        return;
+      }
       if(event.button===0&&groundPan){groundPan=null;current.down=null;renderer.domElement.style.cursor='grab';try{renderer.domElement.releasePointerCapture(event.pointerId);}catch{/* already released */}return;}
       if (event.button === 2) {
         current.rightDown = false;
+        current.down = null;
         const start = current.rightStart;
         current.rightStart = null;
         if (start && Math.hypot(event.clientX - start.x, event.clientY - start.y) < 5) {
           const hit = findItem(event);
           const c = callbacks.current;
-          const ids = hit ? (c.selectedMany.includes(hit.id) ? c.selectedMany : [hit.id]) : c.selectedMany;
+          const ids = hit ? (c.selectedMany.includes(hit.id) ? c.selectedMany : [hit.id]) : [];
           if (hit && !c.selectedMany.includes(hit.id)) {
             c.onSelectMany([hit.id]);
             c.onSelect(hit.id);
@@ -818,9 +883,9 @@ export default function Scene3D({layout, state, selected, selectedMany, place, t
       controls.mouseButtons.LEFT = null as unknown as THREE.MOUSE;
     };
 
-    renderer.domElement.addEventListener('pointerdown', onPointerDown);
-    renderer.domElement.addEventListener('pointermove', onPointerMove);
-    renderer.domElement.addEventListener('pointerup', onPointerUp);
+    renderer.domElement.addEventListener('pointerdown', onPointerDown, true);
+    renderer.domElement.addEventListener('pointermove', onPointerMove, true);
+    renderer.domElement.addEventListener('pointerup', onPointerUp, true);
     renderer.domElement.addEventListener('pointercancel', onWindowBlur);
     renderer.domElement.addEventListener('pointerleave', () => { current.pointerInside = false; setGhost(null); if (!current.marqueeActive) hideMarquee(); });
     renderer.domElement.addEventListener('dblclick', onDoubleClick);
@@ -968,9 +1033,9 @@ export default function Scene3D({layout, state, selected, selectedMany, place, t
     return () => {
       observer.disconnect();
       cancelAnimationFrame(frame);
-      renderer.domElement.removeEventListener('pointerdown', onPointerDown);
-      renderer.domElement.removeEventListener('pointermove', onPointerMove);
-      renderer.domElement.removeEventListener('pointerup', onPointerUp);
+      renderer.domElement.removeEventListener('pointerdown', onPointerDown, true);
+      renderer.domElement.removeEventListener('pointermove', onPointerMove, true);
+      renderer.domElement.removeEventListener('pointerup', onPointerUp, true);
       renderer.domElement.removeEventListener('pointercancel', onWindowBlur);
       renderer.domElement.removeEventListener('dblclick', onDoubleClick);
       renderer.domElement.removeEventListener('dragover', onDragOver);

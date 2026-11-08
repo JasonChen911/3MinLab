@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {freshLayout,CATALOG,cost,issues,start,step,intervene,importBackup,placement,itemCost,reconcile,evaluate,batchMove,batchRotate,alignItems} from './game';
+import {freshLayout,CATALOG,cost,issues,start,step,intervene,importBackup,placement,itemCost,reconcile,evaluate,batchMove,batchRotate,alignItems,bounds,rotateItem} from './game';
 import {route} from './path';
 describe('独立搭建与原概率引擎联动',()=>{
  it('设施增删改变成本，重叠和越界可检出',()=>{const l=freshLayout('performance');const before=cost(l.items);l.items.push({id:'new',kind:'speaker',x:100,z:0,rotation:0});expect(cost(l.items)).toBe(before+CATALOG.speaker.cost);expect(issues(l).some(x=>x.includes('边界'))).toBe(true);l.items.pop();expect(cost(l.items)).toBe(before);});
@@ -23,4 +23,23 @@ describe('V4.1 批量选择与编辑',()=>{
  it('批量移动同时更新所选设施，越界时整批拒绝',()=>{const l=make();const moved=batchMove(l,['a','b'],2,1);expect(moved.ok).toBe(true);expect(moved.changed).toBe(2);expect(moved.items.find(i=>i.id==='a')).toMatchObject({x:-10,z:1});expect(moved.items.find(i=>i.id==='c')).toMatchObject({x:8,z:0});const rejected=batchMove(l,['a'],100,0);expect(rejected.ok).toBe(false);expect(rejected.items).toBe(l.items);expect(rejected.reason).toContain('边界');});
  it('锁定设施被跳过，批量旋转与对齐保持放置合法',()=>{const l=make();l.items=l.items.map(i=>i.id==='b'?{...i,locked:true}:i);const moved=batchMove(l,['a','b'],1,0);expect(moved.changed).toBe(1);expect(moved.items.find(i=>i.id==='b')!.x).toBe(-8);const rotated=batchRotate(l,['c'],1);expect(rotated.ok).toBe(true);expect(rotated.items.find(i=>i.id==='c')!.rotation).toBe(90);const aligned=alignItems(l,['a','c'],'z');expect(aligned.ok).toBe(true);expect(aligned.items.find(i=>i.id==='c')!.z).toBe(aligned.items.find(i=>i.id==='a')!.z);});
  it('批量旋转可叠加并保留角度，空选择返回失败原因',()=>{const l=make();const first=batchRotate(l,['c'],1);const second=batchRotate({...l,items:first.items},['c'],1);expect(second.items.find(i=>i.id==='c')!.rotation).toBe(180);const empty=batchMove(l,[],1,0);expect(empty.ok).toBe(false);expect(empty.reason).toContain('没有');});
+});
+
+describe('设施原地自由旋转',()=>{
+ it('斜角旋转按实际外接范围计算占地',()=>{
+  const item={id:'stage',kind:'stage' as const,x:0,z:0,rotation:45};
+  expect(bounds(item).w).toBeCloseTo(Math.SQRT1_2*10);
+  expect(bounds(item).d).toBeCloseTo(Math.SQRT1_2*10);
+ });
+ it('松手时保存角度和原坐标，越界或锁定时拒绝',()=>{
+  const layout=freshLayout('performance');
+  layout.items=[{id:'stage',kind:'stage' as const,x:0,z:0,rotation:0}];
+  const rotated=rotateItem(layout,'stage',35);
+  expect(rotated.ok).toBe(true);
+  expect(rotated.items[0]).toMatchObject({x:0,z:0,rotation:35});
+  layout.items[0]={...layout.items[0],x:layout.size/2-3};
+  expect(rotateItem(layout,'stage',45).ok).toBe(false);
+  layout.items[0]={...layout.items[0],x:0,locked:true};
+  expect(rotateItem(layout,'stage',35).ok).toBe(false);
+ });
 });
