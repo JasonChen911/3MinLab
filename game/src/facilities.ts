@@ -1,4 +1,4 @@
-import type {Facility, Item, Kind, Layout, WeatherKind} from './game';
+import {facilityParameters, type Facility, type Item, type Kind, type Layout, type WeatherKind} from './game';
 import {weatherProfile} from './world/weather';
 
 export type FacilityRole =
@@ -129,6 +129,8 @@ export interface FacilityMetrics {
   medicalUnits: number;
   sanitation: number;
   vendorPoints: number;
+  toiletServicePerMinute?: number;
+  vendorServicePerMinute?: number;
   storageUnits: number;
   stageQuality: number;
   audioQuality: number;
@@ -152,7 +154,7 @@ export interface FacilityMetrics {
 
 const clamp = (value: number, min = 0, max = 1) => Math.max(min, Math.min(max, value));
 const round = (value: number) => Math.round(value * 1000) / 1000;
-const seatsOf = (item: Item, catalog: Record<Kind, Facility>) => Math.max(0, (catalog[item.kind].capacity ?? 0) * Math.pow(item.scale ?? 1, 2));
+const seatsOf = (item: Item, catalog: Record<Kind, Facility>, realMode=false) => Math.max(0, ((realMode?item.parameters?.capacity:undefined) ?? catalog[item.kind].capacity ?? 0) * Math.pow(item.scale ?? 1, 2));
 const distance = (a: Item, b: Item) => Math.hypot(a.x - b.x, a.z - b.z);
 const STAGES: Kind[] = ['stage', 'stageSmall', 'stageLarge', 'podium'];
 
@@ -173,38 +175,40 @@ export function analyzeFacilities(layout: Layout, catalog: Record<Kind, Facility
   const counts = emptyCounts();
   let entrancePoints = 0, checkinDesks = 0, circulation = 0, seating = 0, shelter = 0;
   let restBays = 0, medicalUnits = 0, sanitation = 0, vendorPoints = 0, storageUnits = 0;
+  let toiletServicePerMinute = 0, vendorServicePerMinute = 0;
   let ambienceRaw = 0, shade = 0, wayfinding = 0, staffDemand = 0;
   let looseTents = 0, damagedItems = 0;
   let fenceCount = 0;
   const equipmentItems: Item[] = [];
 
   for (const item of layout.items) {
-    const impact = facilityImpact(item.kind), info = catalog[item.kind], scale = Math.pow(item.scale ?? 1, 2);
+    const impact = facilityImpact(item.kind), info = catalog[item.kind], scale = Math.pow(item.scale ?? 1, 2), configured = layout.operatingMode === 'simulation' ? facilityParameters(item) : null;
     const condition = item.damaged ? .45 : 1;
     counts[impact.role] += 1;
     if (item.damaged) damagedItems += 1;
-    if (impact.role === 'entry') entrancePoints += Math.max(1, (info.capacity ?? 1) * scale) * condition;
-    if (impact.role === 'checkin') checkinDesks += Math.max(.5, (info.capacity ?? 1) * scale) * condition;
+    if (impact.role === 'entry') entrancePoints += Math.max(1, (configured?.capacity ?? info.capacity ?? 1) * scale) * condition;
+    if (impact.role === 'checkin') checkinDesks += Math.max(.5, (configured?.servicePerMinute ?? (info.capacity ?? 1) * layout.params.serviceRate) / Math.max(.1, layout.params.serviceRate) * scale) * condition;
     if (impact.role === 'seating') {
-      let value = seatsOf(item, catalog) * impact.seating * condition;
+      let value = seatsOf(item, catalog, layout.operatingMode==='simulation') * impact.seating * condition;
       if (outdoor && (info.capacity ?? 0) > 0 && weather.tentRisk > .3 && !item.anchored && (item.kind === 'tent' || item.kind === 'tentSmall')) value *= .35;
       seating += value;
     }
     if (impact.shelter) {
-      shelter += seatsOf(item, catalog) * impact.shelter * condition;
+      shelter += seatsOf(item, catalog, layout.operatingMode==='simulation') * impact.shelter * condition;
       if (outdoor && weather.tentRisk > .3 && !item.anchored) looseTents += 1;
     }
-    if (impact.role === 'rest') restBays += impact.rest * scale * condition;
+    if (impact.role === 'rest') restBays += (configured?.capacity ?? impact.rest) * scale * condition;
     if (impact.medical) medicalUnits += impact.medical * scale * condition;
-    if (impact.sanitation) sanitation += impact.sanitation * scale * condition;
-    if (impact.vendor) vendorPoints += impact.vendor * scale * condition;
+    if (impact.sanitation) sanitation += (configured?.capacity ?? impact.sanitation / 15) * 15 * scale * condition;
+    if (item.kind === 'toilet') toiletServicePerMinute += (configured?.servicePerMinute ?? 2.4) * scale * condition;
+    if (impact.vendor) {vendorPoints += impact.vendor * scale * condition;vendorServicePerMinute += (configured?.servicePerMinute ?? 1.6) * scale * condition;}
     if (impact.role === 'storage') storageUnits += scale;
     if (impact.role === 'barrier') fenceCount += 1;
     circulation += impact.circulation * scale;
     ambienceRaw += impact.ambience * scale * condition;
     shade += impact.shade * scale;
     wayfinding += impact.wayfinding * scale;
-    staffDemand += impact.staffNeed * scale;
+    staffDemand += (layout.operatingMode==='simulation'?(item.parameters?.staffNeed??impact.staffNeed):impact.staffNeed) * scale;
     if (impact.role === 'equipment') equipmentItems.push(item);
   }
 
@@ -212,7 +216,7 @@ export function analyzeFacilities(layout: Layout, catalog: Record<Kind, Facility
   const stageInfo = stage ? facilityImpact(stage.kind) : null;
   const stageBase = !stage ? 0 : stage.kind === 'stageLarge' ? 90 : stage.kind === 'stage' ? 74 : stage.kind === 'stageSmall' ? 55 : 42;
   const near = (item: Item, radius: number) => !stage || distance(item, stage) <= radius;
-  const effective = (kind: Kind) => equipmentItems.filter(item => item.kind === kind && near(item, facilityImpact(kind).radius));
+  const effective = (kind: Kind) => equipmentItems.filter(item => item.kind === kind && near(item, layout.operatingMode==='simulation'?(item.parameters?.radius??facilityImpact(kind).radius):facilityImpact(kind).radius));
   const speakers = effective('speaker'), lights = effective('light'), screens = effective('screen');
   const audioQuality = stage ? clamp(speakers.length * 32, 0, 100) : Math.min(45, speakers.length * 15);
   const lightingQuality = clamp(lights.length * 28, 0, 100);
@@ -224,7 +228,7 @@ export function analyzeFacilities(layout: Layout, catalog: Record<Kind, Facility
 
   const seatItems = layout.items.filter(item => ['chair', 'bleachers'].includes(item.kind));
   const seatDistance = stage && seatItems.length
-    ? seatItems.reduce((total, item) => total + distance(item, stage) * seatsOf(item, catalog), 0) / Math.max(1, seatItems.reduce((n, item) => n + seatsOf(item, catalog), 0))
+    ? seatItems.reduce((total, item) => total + distance(item, stage) * seatsOf(item, catalog, layout.operatingMode==='simulation'), 0) / Math.max(1, seatItems.reduce((n, item) => n + seatsOf(item, catalog, layout.operatingMode==='simulation'), 0))
     : 0;
   const sightline = stage
     ? clamp(stageBase * .48 + screenQuality * .12 + clamp(100 - seatDistance * 1.7, 0, 100) * .4, 0, 100)
@@ -294,6 +298,7 @@ export function analyzeFacilities(layout: Layout, catalog: Record<Kind, Facility
     entrancePoints: round(entrancePoints), checkinDesks: round(checkinDesks), checkinThroughput: round(checkinThroughput),
     circulation: round(circulation), seating: Math.round(seating), shelter: Math.round(shelter), shelterCoverage: round(shelterCoverage),
     restBays: Math.round(restBays), medicalUnits: round(medicalUnits), sanitation: Math.round(sanitation), vendorPoints: Math.round(vendorPoints),
+    toiletServicePerMinute:round(toiletServicePerMinute),vendorServicePerMinute:round(vendorServicePerMinute),
     storageUnits: Math.round(storageUnits), stageQuality: Math.round(stageQuality), audioQuality: Math.round(audioQuality),
     lightingQuality: Math.round(lightingQuality), screenQuality: Math.round(screenQuality), sightline: Math.round(sightline),
     comfort, safety, accessibility: Math.round(accessibility), atmosphere, equipmentQuality: Math.round(equipmentQuality),

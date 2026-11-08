@@ -228,7 +228,8 @@ function activateDirectorEvent(s: SimulationState, event: DirectorEvent, r: Rand
   if (event.impact.addIncident && !s.incidents.some(incident => incident.kind === event.impact.addIncident && incident.until > s.minute)) {
     addIncident(s, event.impact.addIncident, r);
   }
-  if (event.impact.budgetCost) charge(s, {at: s.minute, title: `${event.title}应急费用`, amount: event.impact.budgetCost, category: 'incident', sourceId: `director-${event.id}`, eventId: [...(s.replay?.events ?? [])].reverse().find(entry => entry.directorId === event.id)?.id});
+  const budgetCost=s.snapshot.simulationMode?(s.snapshot.simulationIncidentCosts?.[event.kind]??0):(event.impact.budgetCost??0);
+  if (budgetCost) charge(s, {at: s.minute, title: `${event.title}应急费用`, amount: budgetCost, category: 'incident', sourceId: `director-${event.id}`, eventId: [...(s.replay?.events ?? [])].reverse().find(entry => entry.directorId === event.id)?.id});
   if (event.impact.satisfactionOnActivation) s.satisfaction = clamp(s.satisfaction + event.impact.satisfactionOnActivation, 0, 100);
 }
 

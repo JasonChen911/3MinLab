@@ -99,6 +99,10 @@ export function step(previous:SimulationState,minutes=1):SimulationState {
     s.challenge=evaluateChallenge(s);
     if(s.challenge?.failed&&s.status!=='finished')s.status='finished';
     for(const [kind,count] of [['arrival',s.arrived-beforeArrived],['admission',s.served-beforeServed],['exit',s.departed-beforeDeparted]] as const)if(count>0)s.transfers.push({at:s.minute,kind,count});s.transfers=s.transfers.slice(-120);
+    if(beforeArrived===0&&s.arrived>0)logReplay(s,{at:s.minute,kind:'milestone',tone:'progress',title:'参与者开始入场',detail:`首批参与者抵达，当前到场 ${s.arrived} 人。`,location:'entrance',dedupe:'arrival:first'});
+    if(beforeServed<Math.ceil(s.attendanceTotal*.5)&&s.served>=Math.ceil(s.attendanceTotal*.5))logReplay(s,{at:s.minute,kind:'milestone',tone:'progress',title:'签到过半',detail:`已有 ${s.served} 人完成签到。`,location:'checkin',dedupe:'checkin:half'});
+    if(beforeServed<s.attendanceTotal&&s.served>=s.attendanceTotal)logReplay(s,{at:s.minute,kind:'milestone',tone:'positive',title:'签到全部完成',detail:`计划到场 ${s.attendanceTotal} 人均已完成签到。`,location:'checkin',dedupe:'checkin:complete'});
+    if(beforeDeparted===0&&s.departed>0)logReplay(s,{at:s.minute,kind:'milestone',tone:'progress',title:'参与者开始离场',detail:`已有 ${s.departed} 人离场。`,location:'entrance',dedupe:'exit:first'});
     for(const task of s.tasks){
       const before=taskStatusBefore.get(task.id);
       if(before===task.status||task.status==='等待')continue;
@@ -136,7 +140,7 @@ export function step(previous:SimulationState,minutes=1):SimulationState {
 export type Intervention = DirectorMitigation;
 export const actions:Record<Intervention,{name:string;cost:number}>={reserve:{name:'调用 2 名后备人员（1名协助签到）',cost:400},spare:{name:'启用一套备用设备',cost:100},shelter:{name:'启用室内备用场地',cost:800},supply:{name:'补充应急物资',cost:200},capacity:{name:'增开分流等候区（容量 +50）',cost:300},medical:{name:'调用外部医疗支援',cost:350},comfort:{name:'补给饮水与休息物资',cost:240}};
 export function intervene(previous:SimulationState,kind:Intervention,budgetMode:'unlimited'|'challenge'='unlimited') {
-  const s=structuredClone(previous),action=actions[kind],directorWarning=s.director?.events.some(e=>e.status==='warning'&&(e.mitigation===kind||['queue','crowd','staff'].includes(e.kind)&&(kind==='reserve'||kind==='capacity')||['weather','comfort'].includes(e.kind)&&(kind==='shelter'||kind==='comfort')))??false;
+  const s=structuredClone(previous),action={...actions[kind],cost:snapshotActionCost(previous,kind)},directorWarning=s.director?.events.some(e=>e.status==='warning'&&(e.mitigation===kind||['queue','crowd','staff'].includes(e.kind)&&(kind==='reserve'||kind==='capacity')||['weather','comfort'].includes(e.kind)&&(kind==='shelter'||kind==='comfort')))??false;
   if(s.status==='finished')throw new Error('模拟已结束');
   if(budgetMode==='challenge'&&s.extraSpend+action.cost>s.parameters.budget)throw new Error('预算挑战：余额不足，无法执行此项应对');
   if(kind==='spare'&&(!s.equipmentDown||s.usedSpare>=s.parameters.spare)&&!directorWarning)throw new Error('没有故障或备用设备已用尽');
@@ -154,11 +158,12 @@ export function intervene(previous:SimulationState,kind:Intervention,budgetMode:
   preventDirectorWarnings(s,kind);
   const actionLog=logReplay(s,{
     at:s.minute,kind:'action',title:`现场应对 · ${action.name}`,
-    detail:`${actionEffect(kind)}；支出 ¥${action.cost}。`,cost:action.cost,
+    detail:`${actionEffect(kind)}；${s.snapshot.simulationMode&&action.cost===0?'费用未填写，需实际询价':'支出 ¥'+action.cost}。`,cost:action.cost,
     location:replaySpotForAction(kind),dedupe:`action:${kind}:${s.actions.length}`,
   });
-  charge(s,{at:s.minute,title:action.name,amount:action.cost,category:'action',sourceId:`${kind}:${s.actions.length}`,eventId:actionLog?.id});
+  if(action.cost>0)charge(s,{at:s.minute,title:action.name,amount:action.cost,category:'action',sourceId:`${kind}:${s.actions.length}`,eventId:actionLog?.id});
   return s;
 }
+function snapshotActionCost(state:SimulationState,kind:Intervention){return state.snapshot.simulationMode?Math.max(0,state.snapshot.simulationActionCosts?.[kind]??0):actions[kind].cost;}
 export function runToEnd(s:Snapshot,p:Parameters) {let state=createSimulation(s,p);while(state.status!=='finished')state=step(state,60);return state;}
 export function recommendations(s:SimulationState):string[] {return [s.peakQueue>Math.max(10,s.snapshot.people*.15)?`增加签到分流与后备人员：本次峰值排队 ${s.peakQueue} 人，按批次通知到场。`:null,s.incidents.some(e=>e.kind==='equipment')?`为${s.snapshot.equipmentName}准备备用设备并安排专人巡检。`:null,s.incidents.some(e=>e.kind==='weather')?'明确备用室内场地与天气熔断决策人。':null,s.delay>10?`关键任务之间增加 ${Math.min(60,Math.ceil(s.delay/5)*5)} 分钟缓冲；逐项核对场地和执行人员。`:null,s.extraSpend>0?`核实应急备用金：本次假设模型额外支出 ¥${s.extraSpend}，请实际询价后编制。`:null,s.missingStaff>0?'预留后备人员和缺席交接清单。':null,s.timeout?'本次达到时间上限仍未完成，请检查人员、容量和任务依赖。':null].filter((x):x is string=>!!x);}

@@ -3,9 +3,9 @@ import {createRoot} from 'react-dom/client';
 import Scene3D, {type CameraAction, type Quality, type Tool} from './Scene3D';
 import type {DebugStats} from './world/debug';
 import {
-  CATALOG, ROLE_LABELS, alignItems, applyDifficulty, batchMove, batchRotate, bounds, capacityOf, cost, evaluate, freshLayout, importBackup, issues, itemCost, placement,
+  CATALOG, ROLE_LABELS, alignItems, applyDifficulty, batchMove, batchRotate, bounds, capacityOf, cost, evaluate, freshLayout, importBackup, issues, itemCost, placement, facilityParameters, layoutCost, simulationItemCost, simulationStaffCost, simulationVenueCost, defaultSimulationFinance,
   reconcile, roleCounts, start, step, intervene,
-  type BatchResult, type Facility, type Intervention, type Item, type Kind, type Layout, type PersonSave, type SimulationState, type WeatherKind,
+  type BatchResult, type Facility, type FacilityParameters, type Intervention, type Item, type Kind, type Layout, type PersonSave, type SimulationState, type WeatherKind,
 } from './game';
 import {PERSON_STATE_LABELS, type PersonInfo} from './world/people';
 import {NEED_LABELS, TRAIT_LABELS, needPercent, type Personality, type NeedKey} from './world/personality';
@@ -37,6 +37,7 @@ import {analyticsCsv, buildAnalytics, type AnalyticsReport, type TrajectoryGroup
 import type {LightingPreset} from './world/city';
 import {layoutFromPlan,layoutFromTemplate,readBridge,saveResult} from './integration';
 import {updateBuildLedger} from './engine/buildMoney';
+import {loadParameterLibrary,saveParameterLibrary,upsertParameterPreset,type ParameterPreset} from './parameterLibrary';
 import './style.css';
 import './v3.css';
 import './integration.css';
@@ -59,7 +60,7 @@ const toolCategories: Record<'build' | 'road' | 'decor', string[]> = {
   decor: ['绿植', '装饰'],
 };
 const tools: {id: Tool; label: string; icon: string; key: string; hint: string}[] = [
-  {id: 'select', label: '选择', icon: '↖', key: 'V', hint: '左键选择/拖动，右键旋转，拖框多选'},
+  {id: 'select', label: '选择', icon: '↖', key: 'V', hint: '左键选择/拖动设施，拖动空地平移；Shift 拖框多选'},
   {id: 'observe', label: '观察', icon: '◎', key: 'O', hint: '仅观察场景：不选中、不移动设施'},
   {id: 'build', label: '建造', icon: '▦', key: 'B', hint: '舞台、观众、设备与管理设施'},
   {id: 'road', label: '道路', icon: '═', key: 'N', hint: '主干道与人行小路'},
@@ -327,6 +328,9 @@ const safeFileName = (name: string) => name.replace(/[\\/:*?"<>|]/g, '-').trim()
 type QualityPreference = 'auto' | Quality;
 interface GameSettings {
   sensitivity: number;
+  panSensitivity:number;
+  zoomSensitivity:number;
+  invertRotation:boolean;
   quality: QualityPreference;
   shadows: boolean;
   sound: boolean;
@@ -335,7 +339,7 @@ interface GameSettings {
   snap: boolean;
   debug: boolean;
 }
-const defaultSettings: GameSettings = {sensitivity: 1, quality: 'auto', shadows: true, sound: false, music: false, autosave: true, snap: true, debug: false};
+const defaultSettings: GameSettings = {sensitivity: 1,panSensitivity:1,zoomSensitivity:1,invertRotation:false, quality: 'auto', shadows: true, sound: false, music: false, autosave: true, snap: true, debug: false};
 
 function loadSettings(): GameSettings {
   try {
@@ -433,6 +437,7 @@ function App() {
   const [createAnother,setCreateAnother]=useState(false);
   const [importMode,setImportMode]=useState<'recommended'|'choose'|'free'>('recommended');
   const [layout, setLayout] = useState<Layout>(() => loadAll()[0] ?? freshLayout());
+  const [parameterLibrary,setParameterLibrary]=useState<ParameterPreset[]>(loadParameterLibrary);
   const [saved, setSaved] = useState(loadAll);
   const [selected, setSelected] = useState('');
   const [selectedMany, setSelectedMany] = useState<string[]>([]);
@@ -507,8 +512,10 @@ function App() {
   const variantInfo = venueVariant(layout.venueId, layout.venueVariant ?? 'medium');
   const indoor = layout.indoor ?? venue.type === 'indoor';
   const weather = weatherProfile(layout.weather);
-  const venueCap = venueCapacity(layout.venueId, layout.venueVariant ?? 'medium');
+  const venueCap = layout.operatingMode==='simulation'&&(layout.simulationFinance?.venueCapacityOverride??0)>0?layout.simulationFinance!.venueCapacityOverride:venueCapacity(layout.venueId, layout.venueVariant ?? 'medium');
   const budgetMode = layout.budgetMode ?? 'unlimited';
+  const realMode = layout.operatingMode === 'simulation';
+  const realFinance = {...defaultSimulationFinance,...layout.simulationFinance};
   const warnings = issues(layout);
   const facility = state?.snapshot.facility ?? analyzeFacilities(layout, CATALOG);
   const alerts = directorWarnings(state);
@@ -518,8 +525,9 @@ function App() {
   const challengeResult = state?.challenge;
   const eventCount = state?.replay?.events.length ?? 0;
   const timelineEvents = (state?.replay?.events ?? []).filter(entry => timelineFilter === 'all' || timelineTone(entry) === timelineFilter);
-  const facilityTransactions: MoneyTransaction[] = layout.items.filter(item => itemCost(item) > 0).map(item => ({id: `facility:${item.id}`, at: 0, title: CATALOG[item.kind].name, amount: itemCost(item), category: 'facility', sourceId: item.id}));
-  const moneyTransactions = [...(layout.buildLedger ?? facilityTransactions), ...(state?.transactions ?? (state?.extraSpend ? [{id:'incident:legacy',at:state.minute,title:'旧存档应急支出汇总',amount:state.extraSpend,category:'incident' as const,sourceId:'legacy'}] : []))];
+  const facilityTransactions: MoneyTransaction[] = layout.items.filter(item => (realMode?simulationItemCost(item):itemCost(item)) > 0).map(item => ({id: `facility:${item.id}`, at: 0, title: CATALOG[item.kind].name, amount: realMode?simulationItemCost(item):itemCost(item), category: 'facility', sourceId: item.id}));
+  const realOverhead:MoneyTransaction[]=realMode?[{id:'real:staff',at:0,title:'人员费用',amount:simulationStaffCost(layout),category:'facility',sourceId:'staff'},{id:'real:venue',at:0,title:'场地费用',amount:simulationVenueCost(layout),category:'facility',sourceId:'venue'}].filter(entry=>entry.amount>0) as MoneyTransaction[]:[];
+  const moneyTransactions = [...(realMode?[...facilityTransactions,...realOverhead]:(layout.buildLedger ?? facilityTransactions)), ...(state?.transactions ?? (state?.extraSpend ? [{id:'incident:legacy',at:state.minute,title:'旧存档应急支出汇总',amount:state.extraSpend,category:'incident' as const,sourceId:'legacy'}] : []))];
   const replayMax = state?.replay?.frames.at(-1)?.t ?? state?.minute ?? 0;
   const replayFrame: ReplayFrame | null = replay ? replayFrameAt(state?.replay, replay.minute) : null;
   const replayEvents: ReplayLogEntry[] = state?.replay?.events ?? [];
@@ -566,8 +574,9 @@ function App() {
   const visibleProgress = replay
     ? (replayMax ? replay.minute / replayMax * 100 : 0)
     : Math.min(100, (state?.minute ?? 0) / Math.max(1, layout.activity.duration) * 100);
-  const used = cost(layout.items);
-  const left = layout.activity.budget - used;
+  const used = layoutCost(layout);
+  const activeBudget = realMode?realFinance.budget:layout.activity.budget;
+  const left = activeBudget - used;
   const rating = evaluate(layout, state);
   const level = levelProgress(profile);
   const tier = layout.difficulty ?? 'normal';
@@ -789,7 +798,7 @@ function App() {
       setSavedAt(Date.now());
       setVersions(pushVersion(finalLayout, `完成 · 评分 ${evaluate(layout, state).score}`, settings as unknown as Record<string, unknown>));
     } catch { /* the next manual save retries */ }
-    if (!awardPending.current) return;
+    if (!awardPending.current || layout.operatingMode === 'simulation') {awardPending.current=false;return;}
     awardPending.current = false;
     const score = evaluate(layout, state).score;
     const outcome = evaluateDifficulty(layout, state, score);
@@ -855,6 +864,24 @@ function App() {
     if (!notifyPlacement(next, '更新')) return false;
     update(layout.items.map(i => i.id === itemId ? next : i));
     return true;
+  };
+  const changeFacilityParameter=(item:Item,key:keyof FacilityParameters,value:string|number)=>{
+    const current=facilityParameters(item);
+    const next={...current,[key]:value};
+    if((key==='capacity'||key==='averageUseMinutes')&&item.kind==='toilet')next.servicePerMinute=next.capacity/Math.max(.1,next.averageUseMinutes);
+    if(key==='capacity'&&item.kind.startsWith('checkin'))next.servicePerMinute=next.capacity*1.2;
+    if(key==='capacity'&&(item.kind==='tent'||item.kind==='tentSmall'))next.servicePerMinute=next.capacity/Math.max(.1,next.averageUseMinutes);
+    change(item.id,{parameters:next});
+  };
+  const saveFacilityPreset=(item:Item)=>{
+    const parameters=facilityParameters(item);
+    if(!parameters.source.trim()||parameters.source.startsWith('未填写')){setMessage('请先填写实际价格来源，再保存参数方案。');return;}
+    const name=window.prompt('参数方案名称',`${parameters.region||'通用'} · ${CATALOG[item.kind].name} · ${parameters.supplier||'自定义'}`)?.trim();
+    if(!name)return;
+    const now=new Date().toISOString().slice(0,10);
+    const preset:ParameterPreset={id:crypto.randomUUID(),name,kind:item.kind,parameters:{...parameters,updatedAt:parameters.updatedAt||now},savedAt:now};
+    const next=upsertParameterPreset(parameterLibrary,preset);
+    try{saveParameterLibrary(next);setParameterLibrary(next);setMessage(`已保存参数方案「${name}」。`);}catch{setMessage('参数库保存失败，请检查浏览器存储空间。');}
   };
   const rotate = (item: Item) => change(item.id, {rotation: (item.rotation + 90) % 360});
   const nudge = (itemId: string, dx: number, dz: number) => {
@@ -963,7 +990,7 @@ function App() {
     setMessage(next === 'observe' ? '观察模式：镜头可旋转、平移、缩放，但不会选中或移动设施。' : next === 'delete' ? '删除工具：点击场地中的设施即可移除。' : next === 'select' ? '选择工具：左键选择或拖动设施，空白处拖框多选，Shift 点击增减选择。' : tools.find(t => t.id === next)!.hint);
   };
   const chooseKind = (kind: Kind) => {
-    const lock = facilityLock(profile, kind);
+    const lock = realMode?null:facilityLock(profile, kind);
     if (lock) { setMessage(`${CATALOG[kind].name}需要 Lv.${lock.level} 解锁，当前 Lv.${profile.level}。`); return; }
     setPlace(kind);
     setMessage(`已选择 ${CATALOG[kind].name}，在场地中点击放置。`);
@@ -1020,12 +1047,21 @@ function App() {
       setLayout(prev => ({...prev, run: next, people: undefined}));
       setLastReward(null);
       persist({...target, run: next, people: undefined}, target.challenge ? `开始挑战：${target.challenge.name}` : '开始模拟');
-      awardPending.current = true;
+       awardPending.current = target.operatingMode !== 'simulation';
       const targetWarnings = issues(target);
       setMessage(target.challenge
         ? `挑战「${target.challenge.name}」已开始：${target.challenge.goals.length} 项目标、${target.challenge.fails.length} 项失败条件。`
         : targetWarnings.length ? `模拟已启动；场地有 ${targetWarnings.length} 项搭建提醒。` : '模拟已启动，人物与车辆开始活动。');
     } catch (e) { setMessage((e as Error).message); }
+  };
+  const switchOperatingMode = (nextMode:'game'|'simulation') => {
+    if ((layout.operatingMode??'game')===nextMode) return;
+    const previousMode=layout.operatingMode??'game';
+    const nextRun=nextMode==='game'?layout.gameRun:layout.simulationRun;
+    const nextLayout={...layout,operatingMode:nextMode,gameRun:previousMode==='game'?state??undefined:layout.gameRun,simulationRun:previousMode==='simulation'?state??undefined:layout.simulationRun,run:nextRun};
+    setRunning(false);setState(nextRun??null);setMode('build');setEventsOpen(false);setMoneyOpen(false);setSelected('');setSelectedPerson('');setPlace(null);
+    setLayout(nextLayout);persist(nextLayout,nextMode==='game'?'切换游戏模式':'切换现实仿真模式');
+    setMessage(nextMode==='game'?'游戏模式：使用固定金币与成长规则。':'现实仿真：价格由你填写，未填写的金额不会套用游戏金币。');
   };
   const pause = () => {
     setRunning(false);
@@ -1044,7 +1080,7 @@ function App() {
     logReplay(next,{at:next.minute,kind:'action',title:'继续活动模拟',detail:'继续执行当前活动流程。',location:'venue'});
     setState(next);
     setMode('simulate'); setTool('select'); setPlace(null); setRunning(true);
-    awardPending.current = true;
+    awardPending.current = layout.operatingMode !== 'simulation';
     setMessage('已继续模拟，进度与突发事件保留；路径、目标与事件已重新校验。');
   };
   const pauseAndEdit = () => {
@@ -1068,7 +1104,7 @@ function App() {
   const act = (kind: Intervention) => {
     if (!state) return;
     try {
-      const next = intervene(state, kind, budgetMode);
+      const next = intervene(state, kind, realMode?(realFinance.budgetMode==='limited'?'challenge':'unlimited'):budgetMode);
       setState(next);
       setLayout(prev => ({...prev, run: next}));
       persist({...layout, run: next, people: snapshotPeople()}, `应对：${actions.find(a => a.kind === kind)?.label ?? kind}`);
@@ -1136,6 +1172,9 @@ function App() {
   };
   const focusReplaySpot = (spot: ReplaySpot | undefined) => {
     setCameraAction({kind: 'focus', token: Date.now(), target: replaySpotPoint(spot)});
+    const related=spot==='entrance'?['entrance']:spot==='checkin'||spot==='queue'?['checkin','checkinSmall','checkinLarge']:spot==='stage'?['stage','stageSmall','stageLarge','podium']:spot==='rest'?['rest','toilet','tent','tentSmall']:spot==='medical'?['medical']:[];
+    const item=layout.items.find(candidate=>related.includes(candidate.kind));
+    if(item){setSelected(item.id);setSelectedMany([item.id]);}
   };
   const replayDirectorKind = selectedReplayEvent?.directorId === undefined
     ? undefined
@@ -1350,7 +1389,7 @@ function App() {
   };
   const changeSceneForChallenge = (scene: Layout['activity']['scene']) => {
     if (scene === layout.activity.scene) return;
-    const lock = sceneLock(profile, scene);
+    const lock = realMode?null:sceneLock(profile, scene);
     if (lock) { setMessage(`「${sceneNames[scene] ?? scene}」需要 Lv.${lock.level} 解锁。`); return; }
     if (!confirm('切换活动类型会重建对应预设场地，当前设施布置将被替换。继续？')) return;
     const next = freshLayout(scene);
@@ -1376,10 +1415,11 @@ function App() {
     }));
   };
   const changeScene = (scene: Layout['activity']['scene']) => {
-    const lock = sceneLock(profile, scene);
+    const lock = realMode?null:sceneLock(profile, scene);
     if (lock) { setMessage(`「${sceneNames[scene] ?? scene}」需要 Lv.${lock.level} 解锁。`); return; }
     if (!confirm('切换活动场景会生成对应预设场地，当前未保存的布置将被替换。继续？')) return;
-    load(applyDifficulty(freshLayout(scene), tier));
+    const next=realMode?freshLayout(scene):applyDifficulty(freshLayout(scene), tier);
+    load({...next,operatingMode:layout.operatingMode,simulationFinance:layout.simulationFinance});
   };
   const switchVenue = (venueId: string, variant: VenueSize) => {
     if (venueId === layout.venueId && variant === (layout.venueVariant ?? 'medium')) return;
@@ -1507,7 +1547,7 @@ function App() {
     return () => window.removeEventListener('keydown', key);
   });
 
-  return <div className={'v3-app' + (showcase ? ' v3-showcase-mode' : '')}>
+  return <div className={'v3-app' + (showcase ? ' v3-showcase-mode' : '') + (realMode ? ' v8-reality' : ' v8-game')}>
     <a className="v6-back" href="/#home">← 返回活动策划器</a>
     <button className="v6-import-button" onClick={()=>setImportOpen(true)}>导入我的活动 / 预设</button>
     {importOpen&&<div className="v6-import-scrim"><section className="v6-import-panel" role="dialog" aria-label="活动导入与场景初始化"><header><h2>活动导入与场景初始化</h2><button onClick={()=>setImportOpen(false)}>关闭</button></header><div className="v6-import-list"><h3>我的活动</h3>{bridge?.plans.map(plan=><button className={importId===plan.activityId?'active':''} key={plan.activityId} onClick={()=>{setImportId(plan.activityId);setCreateAnother(false);}}>{plan.name} · {plan.people??'人数待确认'} 人</button>)}{!bridge?.plans.length&&<p>暂无可导入活动，请先在策划器创建并保存。</p>}<h3>统一活动预设（{bridge?.templates.length??0}）</h3><select aria-label="选择活动预设" onChange={e=>{setImportId(`template:${e.target.value}`);setCreateAnother(false);}} value={importId.startsWith('template:')?importId.slice(9):''}><option value="">选择预设</option>{bridge?.templates.map(template=><option key={template.id} value={template.id}>{template.name}</option>)}</select></div>{(()=>{const plan=bridge?.plans.find(p=>p.activityId===importId),template=bridge?.templates.find(p=>`template:${p.id}`===importId),related=saved.filter(s=>s.activity.sourceId===importId),current=createAnother?undefined:related[0];if(!plan&&!template)return <button onClick={()=>{load(freshLayout());setImportOpen(false);}}>自由建造</button>;return <>{related.length>0&&<div className="v6-related"><strong>已有场景</strong>{related.map((item,i)=><button key={item.activity.id} onClick={()=>{load(item);setImportOpen(false);}}>场景 {i+1} · {new Date(item.savedAt||Date.now()).toLocaleDateString()}</button>)}<button onClick={()=>setCreateAnother(true)}>为此活动新建场景</button></div>}<div className="v6-import-report"><strong>{plan?.name||template?.name}</strong><p>人数 {plan?.people??template?.people??'待确认'} · 原预算 ¥{plan?.budget??template?.budget??'待确认'} · 工作人员 {plan?.staff??'待确认'}</p><p>工作组：{plan?.workGroups.map(g=>g.name).join('、')||'待配置'} · 流程：{plan?.workflow.map(f=>f.title).join(' → ')||template?.workflow.join(' → ')||'待配置'}</p><p>场地：{importVenue||'按类型推荐'}；未填写的信息将使用明确的演示默认值，进入后可修改。</p>{current&&plan&&current.bridgeVersion!==plan.updatedAt&&<p className="v6-stale">策划方案已更新：人数 {current.activity.people} → {plan.people??'待确认'}，预算 ¥{current.activity.budget} → ¥{plan.budget??'待确认'}，流程 {current.activity.tasks.length} → {plan.workflow.length} 项。可同步并保留设施布局，或继续使用原场景。</p>}</div><div className="v6-import-options"><button className={importMode==='recommended'?'active':''} onClick={()=>setImportMode('recommended')}>使用推荐场地</button><button className={importMode==='choose'?'active':''} onClick={()=>setImportMode('choose')}>自行选择场地</button><button className={importMode==='free'?'active':''} onClick={()=>setImportMode('free')}>自由建造</button></div>{importMode==='choose'&&<select aria-label="场地选择" value={importVenue} onChange={e=>setImportVenue(e.target.value)}><option value="">推荐场地</option>{VENUES.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}</select>}<div className="v6-import-actions">{current&&<button onClick={()=>{load(current);setImportOpen(false);}}>保留当前场景</button>}<button onClick={()=>{const fresh=plan?layoutFromPlan(plan,importMode==='choose'?importVenue:undefined):layoutFromTemplate(template!);const next=current&&plan?{...current,activity:{...current.activity,...fresh.activity,id:current.activity.id},params:{...current.params,staff:fresh.params.staff,budget:fresh.params.budget},volunteers:fresh.volunteers,bridgeVersion:plan.updatedAt,bridgeGroups:fresh.bridgeGroups,bridgeBudgetItems:fresh.bridgeBudgetItems,bridgeVenue:fresh.bridgeVenue,run:undefined,people:undefined}:fresh;const chosen=importMode==='free'?{...next,items:[]}:next;load(chosen);setImportOpen(false);try{saveOne(chosen);setSaved(loadAll());setMessage('已导入并保存场景；设施可继续调整。');}catch(error){setMessage(error instanceof Error?error.message:'场景未保存，请手动重试。');}}}>{current?'同步策划并保留布局':'开始搭建'}</button></div></>;})()}</section></div>}
@@ -1526,6 +1566,9 @@ function App() {
           quality={quality}
           shadows={settings.shadows}
           sensitivity={settings.sensitivity}
+          panSensitivity={settings.panSensitivity}
+          zoomSensitivity={settings.zoomSensitivity}
+          invertRotation={settings.invertRotation}
           snap={settings.snap}
           personSelected={selectedPerson}
           debug={settings.debug}
@@ -1536,9 +1579,9 @@ function App() {
           lighting={lighting}
           showcase={showcase}
           autoRotate={autoRotate}
-          onSelect={id => { setSelected(id); if (id) setSelectedPerson(''); }}
+          onSelect={id => { setSelected(id); if (id) {setSelectedPerson('');setEventsOpen(false);} }}
           onSelectMany={selectMany}
-          onEdit={itemId => { setSelected(itemId); setSelectedMany([itemId]); setSelectedPerson(''); setPanelOpen(true); setMessage('已打开设施属性面板。'); }}
+          onEdit={itemId => { setSelected(itemId); setSelectedMany([itemId]); setSelectedPerson(''); setPanelOpen(true);setEventsOpen(false); setMessage('已打开设施属性面板。'); }}
           onPlace={add}
           onMove={(itemId, x, z) => change(itemId, {x, z})}
           onBatchMove={moveMany}
@@ -1559,33 +1602,26 @@ function App() {
       <header className="v3-hud">
         <div className="v3-brand">
           <span className="v3-logo">3M</span>
-          <div><b>开放世界活动模拟器</b><span>3MinLab · Event World V4</span></div>
+          <div><b>开放世界活动模拟器</b><span>3MinLab · Event World V8</span></div>
         </div>
         <div className="v3-activity">
           <b>{layout.activity.title}</b>
           <span>{sceneNames[layout.activity.scene] ?? layout.activity.scene} · {venue.name} · {variantInfo.label} · {indoor ? '室内' : '室外'} {layout.size}×{layout.size}m</span>
+          <div className="v8-mode-switch" aria-label="运行模式"><button className={!realMode?'active':''} onClick={()=>switchOperatingMode('game')}>🎮 游戏模式</button><button className={realMode?'active':''} onClick={()=>switchOperatingMode('simulation')}>📊 现实仿真</button></div>
         </div>
         <div className="v3-metrics">
-          <span className="v3-money">{budgetMode === 'unlimited' ? '资金 ∞' : '资金'} <b>{budgetMode === 'unlimited' ? money(used) : money(left)}</b></span>
-          <span>预算 <b>{layout.activity.budget.toLocaleString()}</b></span>
-          <span className={used > layout.activity.budget && budgetMode === 'challenge' ? 'warn' : ''}>已用 <b>{money(used)}</b></span>
+          <span className="v3-money">{realMode?'现实成本':budgetMode === 'unlimited' ? '游戏金币 ∞' : '游戏金币'} <b>{realMode?money(used):`${(budgetMode === 'unlimited' ? used : left).toLocaleString()} 币`}</b></span>
+          <span>{realMode?realFinance.budgetMode==='off'?'不启用预算':realFinance.budgetMode==='unlimited'?'预算仅参考':'限定预算':'预算'} <b>{realMode&&realFinance.budgetMode==='off'?'—':activeBudget.toLocaleString()}</b></span>
           <span>参与 <b>{layout.activity.people}</b> / {venueCap}</span>
           <span>天气 <b>{weather.icon} {weather.name}</b>{layout.weatherAuto ? ' · 自动' : ''}</span>
-          <span className={'v3-difficulty-chip' + (tier === 'extreme' ? ' hard' : '')} title={tierInfo.detail}>难度 <b>{tierInfo.name}</b></span>
-          {layout.weatherAuto && state && state.status !== 'finished' && <span>变天 <b>{Math.max(0, nextWeatherChange(state.minute) - state.minute)}′</b></span>}
-          <span>团队 <b>{layout.params.staff}</b>+{layout.volunteers ?? 0}</span>
-          <span>状态 <b>{mode === 'build' ? '建造中' : statusLabels[state?.status ?? 'ready']}</b></span>
-          {state && <span className={satisfaction < 45 ? 'warn' : ''}>满意 <b>{satisfaction}</b></span>}
-          <span>设施 <b>{layout.items.length}</b> 项</span>
-          <span className={warnings.length ? 'warn' : ''}>提醒 <b>{warnings.length}</b></span>
-          {state?.status === 'finished' && <span className="v3-score-chip">评分 <b>{rating.score}</b></span>}
-          {challenge && <span className={challengeResult?.failed ? 'warn' : 'v3-challenge-chip'} title={challenge.brief}>挑战 <b>{challenge.name}</b>{challengeResult ? ` ${challengeResult.met}/${challengeResult.total}` : ''}</span>}
+          {realMode?<span>活动时间 <b>{state?.minute??0}′ / {layout.activity.duration}′</b></span>:<span className={'v3-difficulty-chip' + (tier === 'extreme' ? ' hard' : '')} title={tierInfo.detail}>难度 <b>{tierInfo.name}</b></span>}
+          {!realMode&&challenge && <span className={challengeResult?.failed ? 'warn' : 'v3-challenge-chip'} title={challenge.brief}>挑战 <b>{challenge.name}</b>{challengeResult ? ` ${challengeResult.met}/${challengeResult.total}` : ''}</span>}
         </div>
-        <div className="v3-level" title={`${level.current} / ${level.target} 经验`}>
+        {!realMode&&<div className="v3-level" title={`${level.current} / ${level.target} 经验`}>
           <div><b>Lv.{profile.level}</b><span>{level.current}/{level.target} XP</span></div>
           <i><em style={{width: `${level.ratio * 100}%`}}/></i>
-          <div className="v3-wallet"><span>¥{profile.currency.toLocaleString()}</span><span>声望 {profile.reputation}</span></div>
-        </div>
+            <div className="v3-wallet"><span>🪙 {profile.currency.toLocaleString()}</span><span>声望 {profile.reputation}</span></div>
+        </div>}
         <div className="v3-mode">
           <button className={mode === 'build' ? 'active' : ''} onClick={() => { if (replayRef.current) exitReplay(); setMode('build'); setRunning(false); setLayout(prev => ({...prev, people: undefined})); setPlace(null); setTool('select'); setMessage('已切换到建造模式，模拟暂停；继续时会重新校验路径与目标。'); }}>建造</button>
           <button className={mode === 'simulate' ? 'active' : ''} onClick={resume}>模拟</button>
@@ -1593,7 +1629,7 @@ function App() {
         <div className="v3-hud-actions">
           <button className={analyticsOpen ? 'active' : ''} onClick={() => analyticsOpen ? setAnalyticsOpen(false) : openAnalytics()} title="真实数据分析：热力图、人物轨迹与逐分钟曲线">分析</button>
           <button onClick={enterShowcase} title="展示模式：隐藏界面、自由镜头、昼夜与天气、截图分享">展示</button>
-          <button className={layout.challenge ? 'active' : ''} onClick={openChallenge} title="自定义挑战：目标、失败条件、事件强度与活动参数">挑战</button>
+          {!realMode&&<button className={layout.challenge ? 'active' : ''} onClick={openChallenge} title="自定义挑战：目标、失败条件、事件强度与活动参数">挑战</button>}
           <button onClick={saveNow} title="保存当前方案">保存</button>
           <button onClick={() => setSettingsOpen(true)} title="方案、活动与世界设置">设置</button>
         </div>
@@ -1660,7 +1696,7 @@ function App() {
         <input className="v3-search" placeholder="搜索设施…" aria-label="搜索设施" value={search} onChange={e => setSearch(e.target.value)}/>
         <div className="v3-cards">
           {trayKinds.map(([kind, v]) => {
-            const lock = facilityLock(profile, kind);
+            const lock = realMode?null:facilityLock(profile, kind);
             return <button
               key={kind}
               draggable={!lock}
@@ -1672,7 +1708,7 @@ function App() {
             >
               <span className="v3-card-icon" style={{color: hex(v.color)}}>{icon(kind)}</span>
               <b>{v.name}</b>
-              <small>{lock ? `Lv.${lock.level} 解锁` : `${money(v.cost)} · ${v.w}×${v.d}`}</small>
+              <small>{lock ? `Lv.${lock.level} 解锁` : realMode ? `现实价格待填 · ${v.w}×${v.d}` : `游戏金币 ${v.cost} · ${v.w}×${v.d}`}</small>
             </button>;
           })}
           {!trayKinds.length && <p className="v3-empty">没有匹配的设施。</p>}
@@ -1737,7 +1773,7 @@ function App() {
           <div className="v3-badges">
             <span>{CATALOG[chosen.kind].group}</span>
             <span className={chosen.locked ? 'locked' : 'editable'}>{chosen.locked ? '已锁定' : '可编辑'}</span>
-            <span>{money(itemCost(chosen))}</span>
+            <span>{realMode?`现实成本 ${money(simulationItemCost(chosen))}`:`游戏金币 ${itemCost(chosen)}`}</span>
             {chosen.anchored && <span>已固定</span>}
             {chosen.damaged && <span>受损</span>}
           </div>
@@ -1762,11 +1798,25 @@ function App() {
             <label>X 坐标<input type="number" value={chosen.x} disabled={!editable || chosenLocked} onChange={e => { const n = Number(e.target.value); if (Number.isFinite(n)) change(chosen.id, {x: n}); }}/></label>
             <label>Z 坐标<input type="number" value={chosen.z} disabled={!editable || chosenLocked} onChange={e => { const n = Number(e.target.value); if (Number.isFinite(n)) change(chosen.id, {z: n}); }}/></label>
             <label>占地<input value={`${sizeText(bounds(chosen).w)} × ${sizeText(bounds(chosen).d)}`} disabled/></label>
-            <label>容量<input value={capacityOf(chosen) || '—'} disabled/></label>
+            <label>容量<input value={capacityOf(chosen,realMode) || '—'} disabled/></label>
             <label>旋转<select value={chosen.rotation} disabled={!editable || chosenLocked} onChange={e => change(chosen.id, {rotation: Number(e.target.value)})}>{[0, 90, 180, 270].map(n => <option key={n} value={n}>{n}°</option>)}</select></label>
             <label>高度<input type="range" min=".6" max="2.2" step=".1" value={chosen.height ?? 1} disabled={!editable || chosenLocked} onChange={e => change(chosen.id, {height: Number(e.target.value)})}/></label>
             <label className="wide">尺寸 <span>{(chosen.scale ?? 1).toFixed(1)}×</span><input type="range" min=".5" max="2" step=".1" value={chosen.scale ?? 1} disabled={!editable || chosenLocked} onChange={e => change(chosen.id, {scale: Number(e.target.value)})}/></label>
           </div>
+          {realMode && <section className="v8-parameter-card" aria-label="设施现实参数">
+            <h4>现实设施参数 <small>可按实际供应商修改</small></h4>
+            <p className="v3-hint">未填写价格按未知金额 0 暂计，不能视为免费或市场报价。能力初值仅为演示假设。</p>
+            <div className="v3-grid">
+              {([['capacity','容量 / 人'],['servicePerMinute','每分钟服务人数'],['averageUseMinutes','平均服务时长 / 分钟'],['staffNeed','所需人员'],['radius','影响半径 / 米'],['purchasePrice','购买单价 / ¥'],['rentalPrice','租赁单价 / ¥'],['useCost','每小时使用费 / ¥'],['maintenanceCost','维护费 / ¥'],['transportCost','运输费 / ¥'],['installationCost','装拆费 / ¥'],['quantity','数量'],['hours','使用时长 / 小时']] as [keyof FacilityParameters,string][]).filter(([key])=>key==='capacity'?facilityParameters(chosen).capacity>0||['toilet','rest','medical'].includes(chosen.kind):key==='servicePerMinute'?['checkin','checkinSmall','checkinLarge','toilet','tent','tentSmall'].includes(chosen.kind):key==='averageUseMinutes'?['toilet','tent','tentSmall'].includes(chosen.kind):key==='staffNeed'?facilityImpact(chosen.kind).staffNeed>0||['toilet','tent','tentSmall'].includes(chosen.kind):key==='radius'?['speaker','light','screen'].includes(chosen.kind):true).map(([key,label])=><label key={key}>{label}<input type="number" min="0" step="any" disabled={!editable||chosenLocked} value={facilityParameters(chosen)[key]} onChange={e=>changeFacilityParameter(chosen,key,Math.max(0,Number(e.target.value)||0))}/></label>)}
+              <label>取得方式<select disabled={!editable||chosenLocked} value={facilityParameters(chosen).acquisition} onChange={e=>changeFacilityParameter(chosen,'acquisition',e.target.value)}><option value="rent">租赁</option><option value="buy">购买</option></select></label>
+              <label>地区<input disabled={!editable||chosenLocked} value={facilityParameters(chosen).region} onChange={e=>changeFacilityParameter(chosen,'region',e.target.value)}/></label>
+              <label>供应商<input disabled={!editable||chosenLocked} value={facilityParameters(chosen).supplier} onChange={e=>changeFacilityParameter(chosen,'supplier',e.target.value)}/></label>
+              <label>价格来源<input disabled={!editable||chosenLocked} value={facilityParameters(chosen).source} onChange={e=>changeFacilityParameter(chosen,'source',e.target.value)}/></label>
+              <label>价格更新时间<input type="date" disabled={!editable||chosenLocked} value={facilityParameters(chosen).updatedAt} onChange={e=>changeFacilityParameter(chosen,'updatedAt',e.target.value)}/></label>
+            </div>
+            <p>本设施现实成本 <b>{money(simulationItemCost(chosen))}</b></p>
+            <div className="v3-row"><button disabled={!editable||chosenLocked} onClick={()=>saveFacilityPreset(chosen)}>保存到参数方案库</button><select aria-label="调用参数方案" disabled={!editable||chosenLocked} value="" onChange={e=>{const preset=parameterLibrary.find(entry=>entry.id===e.target.value);if(preset)change(chosen.id,{parameters:preset.parameters});}}><option value="">调用已存方案…</option>{parameterLibrary.filter(entry=>entry.kind===chosen.kind).map(entry=><option key={entry.id} value={entry.id}>{entry.name} · {entry.parameters.updatedAt||entry.savedAt}</option>)}</select></div>
+          </section>}
           <div className="v3-status-row"><span>运行状态</span><b className={runtimeBad ? 'bad' : ''}>{runtime}</b></div>
           {!editable && <p className="v3-hint">模拟中属性只读。点击“暂停并编辑”后可继续调整。</p>}
           <div className="v3-row v3-item-actions">
@@ -1814,9 +1864,9 @@ function App() {
             <div className="v3-mode-row"><span>屋顶</span>{(['full', 'translucent', 'hidden'] as const).map(m => <button key={m} className={layout.roofMode === m || (!layout.roofMode && m === 'translucent') ? 'active' : ''} onClick={() => setLayout(prev => ({...prev, roofMode: m}))}>{({full: '完整', translucent: '半透', hidden: '隐藏'} as const)[m]}</button>)}</div>
           </div>}
           <div className="v3-budget">
-            <div><span>{budgetMode === 'unlimited' ? '资金模式 · 无限' : '活动预算'}</span><b>{money(layout.activity.budget)}</b></div>
-            <div className="v3-budget-bar"><i className={used > layout.activity.budget ? 'bad' : ''} style={{width: `${Math.min(100, used / Math.max(1, layout.activity.budget) * 100)}%`}}/></div>
-            <div className="v3-budget-row"><span>已用 {money(used)}</span><span className={used > layout.activity.budget ? 'bad' : ''}>{budgetMode === 'unlimited' ? (used > layout.activity.budget ? `超预算 ${money(used - layout.activity.budget)}（不阻止放置）` : `预算内 · 剩 ${money(left)}`) : `剩余 ${money(left)}`}</span></div>
+            <div><span>{realMode?'现实成本':budgetMode === 'unlimited' ? '游戏资金 · 无限' : '游戏预算'}</span><b>{realMode&&realFinance.budgetMode==='off'?'未启用预算':money(activeBudget)}</b></div>
+            {(!realMode||realFinance.budgetMode!=='off')&&<div className="v3-budget-bar"><i className={used > activeBudget ? 'bad' : ''} style={{width: `${Math.min(100, used / Math.max(1, activeBudget) * 100)}%`}}/></div>}
+            <div className="v3-budget-row"><span>已用 {money(used)}</span><span className={used > activeBudget ? 'bad' : ''}>{realMode?(realFinance.budgetMode==='off'?'仅记录现场资源':`剩余 ${money(left)}`):`剩余 ${money(left)}`}</span></div>
           </div>
           <h4>现场任务</h4>
           <ul className="v3-goals">{goals.map(g => <li key={g.label} className={g.done ? 'done' : ''}>{g.done ? '✓' : '○'} {g.label}</li>)}</ul>
@@ -1824,14 +1874,14 @@ function App() {
           {warnings.length ? <ul className="v3-warnings">{warnings.slice(0, 5).map((w, i) => <li key={i}>{w}</li>)}</ul> : <p className="v3-ok">未发现明显布局问题。</p>}
           {state && <div className="v3-live">
             <h4>模拟结果</h4>
-            <div><span>到场</span><b>{state.arrived}</b><span>签到</span><b>{state.served}</b><span>峰值排队</span><b>{state.peakQueue}</b><span>延误</span><b>{state.delay} 分</b><span>评分</span><b>{rating.score}/100</b><span>应急支出</span><b>{money(state.extraSpend)}</b></div>
+             <div><span>到场</span><b>{state.arrived}</b><span>签到</span><b>{state.served}</b><span>峰值排队</span><b>{state.peakQueue}</b><span>延误</span><b>{state.delay} 分</b>{!realMode&&<><span>评分</span><b>{rating.score}/100</b></>}<span>应急支出</span><b>{money(state.extraSpend)}</b></div>
             {challenge && challengeResult && <p className={`v3-challenge-summary${challengeResult.failed ? ' bad' : state.status === 'finished' && challengeResult.completed ? ' ok' : ''}`}>
               挑战 · <b>{challenge.name}</b> · {state.status !== 'finished' ? '进行中' : challengeResult.failed ? `失败：${challengeResult.failure}` : challengeResult.completed ? '达成' : '未完成'} · 目标 {challengeResult.met}/{challengeResult.total}
             </p>}
           </div>}
           <div className="v3-tips">
             <b>操作提示</b>
-            <span>左键选择 / 拖动设施 · 右键拖动 360° 旋转</span>
+            <span>左键选择 / 拖动设施 · 拖动空地平移 · Shift 拖框多选</span>
             <span>中键拖动平移 · Space + 左键平移</span>
             <span>滚轮朝光标缩放 · WASD 移动 · F 回到场地</span>
             <span>双击设施打开属性编辑 · 双击场地空白处取消</span>
@@ -1848,6 +1898,9 @@ function App() {
           </div>
         </div>
         <div className="v3-analysis-body">
+          <div className="v8-analysis-summary"><b>{layoutAnalysis.scores.total} 分</b><span>通道 {layoutAnalysis.routes.every(route=>route.reachable)?'畅通':'存在阻断'}</span><span>容量 {layoutAnalysis.scores.capacity>=60?'基本满足':'需要调整'}</span><span>严重问题 {analysisErrors.length}</span></div>
+          <p className="v8-primary-risk">{layoutAnalysis.findings[0]?`主要风险：${layoutAnalysis.findings[0].title}。建议：${layoutAnalysis.findings[0].fix}`:'未发现明显场地风险。'}</p>
+          <details className="v8-analysis-details"><summary>查看评分依据、路径与全部问题</summary>
           <div className="v3-analysis-scores">
             <span>动线 <b>{layoutAnalysis.scores.flow}</b></span>
             <span>容量 <b>{layoutAnalysis.scores.capacity}</b></span>
@@ -1874,6 +1927,7 @@ function App() {
               <small>建议：{finding.fix}</small>
             </li>)}</ul> : <p className="v3-ok">没有发现问题，可以开始模拟。</p>}
           </section>
+          </details>
           <section className="v3-analysis-plan">
             <div className="v3-row">
               <button className="v3-primary" onClick={previewAnalysisPlan}>生成优化预览</button>
@@ -2138,9 +2192,9 @@ function App() {
         </div>
         <div className="v3-timeline"><i style={{width: `${visibleProgress}%`}}/><em>{Math.round(visibleProgress)}%</em></div>
         {moneyOpen && <section className="v7-money" aria-label="资金明细">
-          <header><b>资金使用记录</b><span>{budgetMode === 'unlimited' ? '无限资金 · 费用照常记录' : '预算挑战 · 应对受余额限制'}</span></header>
-          <div className="v7-money-stats"><span>活动预算 <b>{money(layout.activity.budget)}</b></span><span>设施配置 <b>{money(used)}</b></span><span>应急支出 <b>{money(state?.extraSpend ?? 0)}</b></span><span>剩余 <b>{money(Math.max(0,layout.activity.budget-used-(state?.extraSpend ?? 0)))}</b></span><span>超额 <b>{money(Math.max(0,used+(state?.extraSpend ?? 0)-layout.activity.budget))}</b></span></div>
-          <small>设施金额来自当前配置；应急金额来自模拟交易。未配置的人力、场地、餐饮与宣传费用不计入已支出。</small>
+          <header><b>资金使用记录</b><span>{realMode?'现实仿真 · 用户输入价格':budgetMode === 'unlimited' ? '游戏无限资金 · 费用照常记录' : '游戏预算挑战'}</span></header>
+          <div className="v7-money-stats"><span>活动预算 <b>{realMode&&realFinance.budgetMode==='off'?'未启用':money(activeBudget)}</b></span><span>配置及人员 <b>{money(used)}</b></span><span>应急支出 <b>{money(state?.extraSpend ?? 0)}</b></span><span>剩余 <b>{realMode&&realFinance.budgetMode==='off'?'—':money(Math.max(0,activeBudget-used-(state?.extraSpend ?? 0)))}</b></span><span>超额 <b>{realMode&&realFinance.budgetMode==='off'?'—':money(Math.max(0,used+(state?.extraSpend ?? 0)-activeBudget))}</b></span></div>
+          <small>{realMode?'未填写的价格按未知金额 0 暂计；请核对来源与更新时间。':'设施金额来自游戏配置；应急金额来自模拟交易。'}</small>
           <div className="v7-money-list">{moneyTransactions.map(entry => <button key={entry.id} onClick={() => {if(entry.eventId){setEventsOpen(true);setTimelineSelected(entry.eventId)}else if(entry.category==='facility'){setSelected(entry.sourceId);setPanelOpen(true)}}}>
             <span>{entry.category === 'facility' || entry.category === 'refund' ? '配置' : `${entry.at}′`}</span><b>{entry.title}</b><em>{entry.category === 'facility' ? '设施' : entry.category === 'refund' ? '返还' : entry.category === 'action' ? '应对' : '事件'}</em><strong>{money(entry.amount)}</strong>
           </button>)}{!moneyTransactions.length && <p>尚无设施或应急交易。</p>}</div>
@@ -2160,16 +2214,16 @@ function App() {
             <div>{actions.map(a => <button key={a.kind} disabled={!state || state.status === 'finished'} onClick={() => act(a.kind)}>{a.label}</button>)}</div>
           </div>
           {state?.status === 'finished' && <div className="v3-report">
-            <strong>模拟结果 · {rating.score}/100</strong>
-            <span>场地 {rating.readiness}/40 · 预算 {rating.budget}/20 · 签到 {rating.service}/25 · 进度 {rating.schedule}/15</span>
+            <strong>{realMode?'现实仿真结果':`游戏模拟结果 · ${rating.score}/100`}</strong>
+            {!realMode&&<span>场地 {rating.readiness}/40 · 预算 {rating.budget}/20 · 签到 {rating.service}/25 · 进度 {rating.schedule}/15</span>}
             <span className={rating.satisfaction < 45 ? 'bad' : ''}>满意度 {Math.round(rating.satisfaction)}/100</span>
             <span>平均排队 {state.served ? Math.round(state.queuePersonMinutes / state.served) : 0} 分钟 · 峰值 {state.peakQueue} 人</span>
             <span>应急支出 {money(state.extraSpend)} · 延误 {state.delay} 分钟</span>
-            <span>预算结算 · {budgetMode === 'unlimited' ? '无限资金' : '预算挑战'} · 建设 {money(used)} + 应急 {money(state.extraSpend)} = {money(used + state.extraSpend)}</span>
-            <span className={used + state.extraSpend > layout.activity.budget ? 'bad' : ''}>
-              {used + state.extraSpend > layout.activity.budget ? `超出预算 ${money(used + state.extraSpend - layout.activity.budget)}` : `预算结余 ${money(layout.activity.budget - used - state.extraSpend)}`}（预算 {money(layout.activity.budget)}）
+            <span>费用结算 · {realMode?realFinance.budgetMode==='off'?'不启用预算':realFinance.budgetMode==='limited'?'指定预算':'无限资金':budgetMode === 'unlimited' ? '无限资金' : '预算挑战'} · 配置 {money(used)} + 应急 {money(state.extraSpend)} = {money(used + state.extraSpend)}</span>
+            <span className={used + state.extraSpend > activeBudget ? 'bad' : ''}>
+              {realMode&&realFinance.budgetMode==='off'?'本次仅记录费用，不限制资金':used + state.extraSpend > activeBudget ? `超出预算 ${money(used + state.extraSpend - activeBudget)}` : `预算结余 ${money(activeBudget - used - state.extraSpend)}`}（预算 {money(activeBudget)}）
             </span>
-            {challenge && <div className="v3-challenge-report">
+            {!realMode&&challenge && <div className="v3-challenge-report">
               <b className={challengeResult?.failed ? 'bad' : ''}>
                 {challengeResult?.failed ? `挑战失败 · ${challengeResult.failure}` : challengeResult?.completed ? '挑战达成' : '挑战未完成'} · 目标 {challengeResult?.met ?? 0}/{challengeResult?.total ?? challenge.goals.length}
               </b>
@@ -2178,7 +2232,7 @@ function App() {
               </li>)}</ul>
               {!!challenge.fails.length && <small>失败条件：{challenge.fails.map(rule => rule.label).join(' · ')}</small>}
             </div>}
-            {difficultyOutcome && <div className="v3-difficulty-report">
+            {!realMode&&difficultyOutcome && <div className="v3-difficulty-report">
               <b className={difficultyOutcome.failed ? 'bad' : 'ok'}>
                 难度 · {tierInfo.name} · {difficultyOutcome.failed ? '未达成' : `评级 ${difficultyOutcome.grade}`}
               </b>
@@ -2259,10 +2313,26 @@ function App() {
           <label>天气<select value={layout.weather ?? 'sunny'} disabled={layout.weatherAuto} onChange={e => changeWeather(e.target.value as WeatherKind)}>{(['sunny', 'cloudy', 'lightRain', 'heavyRain', 'breeze', 'gale'] as const).map(w => <option key={w} value={w}>{weatherProfile(w).icon} {weatherProfile(w).name}</option>)}</select></label>
           <label className="v3-check"><input type="checkbox" checked={!!layout.weatherAuto} onChange={e => setLayout(prev => ({...prev, weatherAuto: e.target.checked}))}/>自动天气变化（按种子确定性生成，变化前预警）</label>
           {layout.weatherAuto && <p className="v3-hint">活动开始后天气按种子变化，变化前 6 分钟提醒准备；可随时关闭自动并手动指定天气。</p>}
-          <label>资金模式<select value={budgetMode} onChange={e => setLayout(prev => ({...prev, budgetMode: e.target.value as Layout['budgetMode']}))}><option value="unlimited">无限资金 · 记录费用与超预算提醒</option><option value="challenge">预算挑战 · 超预算会阻止放置</option></select></label>
-          <p className="v3-hint">天气影响户外帐篷稳定性、设备与人员速度；预算挑战模式会真正限制放置，无限模式只提醒不阻止。</p>
+          {!realMode&&<label>资金模式<select value={budgetMode} onChange={e => setLayout(prev => ({...prev, budgetMode: e.target.value as Layout['budgetMode']}))}><option value="unlimited">无限资金 · 记录费用与超预算提醒</option><option value="challenge">预算挑战 · 超预算会阻止放置</option></select></label>}
+          {!realMode&&<p className="v3-hint">天气影响户外帐篷稳定性、设备与人员速度；预算挑战模式会真正限制放置，无限模式只提醒不阻止。</p>}
         </section>
-        <section>
+        {realMode&&<section className="v8-finance-settings">
+          <h3>现实费用与预算</h3>
+          <p className="v3-hint">价格由组织者填写；未填金额暂按 0 汇总并标记为未知。设施价格不会读取游戏金币。</p>
+          <label>预算规则<select value={realFinance.budgetMode} onChange={e=>setLayout(prev=>({...prev,simulationFinance:{...defaultSimulationFinance,...prev.simulationFinance,budgetMode:e.target.value as typeof realFinance.budgetMode}}))}><option value="unlimited">无限资金 · 仍记录成本</option><option value="limited">指定预算 · 阻止超支</option><option value="off">不启用预算 · 仅模拟现场</option></select></label>
+          {([['budget','现实预算 / ¥'],['staffHourlyWage','每名员工时薪 / ¥'],['staffHours','员工工时 / 小时'],['overtimeCost','加班费用 / ¥'],['mealCost','人员餐饮 / ¥'],['transportCost','人员交通 / ¥'],['venueRent','场地每小时租金 / ¥'],['venueHours','场地使用时长 / 小时'],['venueCapacityOverride','实际场地容量 / 人（0 = 模板假设）'],['cleaningCost','清洁费 / ¥'],['powerCost','电力费 / ¥'],['deposit','押金 / ¥'],['otherCost','其他费用 / ¥']] as [Exclude<keyof typeof realFinance,'budgetMode'|'actionCosts'|'incidentCosts'>,string][]).map(([key,label])=><label key={key}>{label}<input type="number" min="0" step="any" value={realFinance[key]} onChange={e=>setLayout(prev=>({...prev,simulationFinance:{...defaultSimulationFinance,...prev.simulationFinance,[key]:Math.max(0,Number(e.target.value)||0)}}))}/></label>)}
+          <details><summary>应急措施与突发费用参考</summary><p className="v3-hint">留空或 0 表示费用未知，仿真不会套用游戏金币价格。</p>
+            {actions.map(action=><label key={action.kind}>{action.label} / ¥<input type="number" min="0" value={(realFinance.actionCosts??defaultSimulationFinance.actionCosts)[action.kind]} onChange={e=>setLayout(prev=>({...prev,simulationFinance:{...defaultSimulationFinance,...prev.simulationFinance,actionCosts:{...defaultSimulationFinance.actionCosts,...prev.simulationFinance?.actionCosts,[action.kind]:Math.max(0,Number(e.target.value)||0)}}}))}/></label>)}
+            {([['equipment','设备故障'],['weather','天气事件'],['traffic','交通事件'],['supply','物资短缺'],['price','供应商调价'],['absence','人员缺席'],['queue','排队拥堵'],['crowd','人群聚集'],['staff','人员安排'],['medical','医疗事件'],['program','流程延误'],['comfort','舒适度事件']] as const).map(([key,label])=><label key={key}>{label}单位费用 / ¥<input type="number" min="0" value={(realFinance.incidentCosts??defaultSimulationFinance.incidentCosts)[key]} onChange={e=>setLayout(prev=>({...prev,simulationFinance:{...defaultSimulationFinance,...prev.simulationFinance,incidentCosts:{...defaultSimulationFinance.incidentCosts,...prev.simulationFinance?.incidentCosts,[key]:Math.max(0,Number(e.target.value)||0)}}}))}/></label>)}
+          </details>
+          <p>设施 {money(used-simulationStaffCost(layout)-simulationVenueCost(layout))} · 人员 {money(simulationStaffCost(layout))} · 场地 {money(simulationVenueCost(layout))} · 合计 <b>{money(used)}</b></p>
+        </section>}
+        {realMode&&<section className="v8-library-settings">
+          <h3>设施参数方案库 · {parameterLibrary.length}</h3>
+          <p className="v3-hint">在场地选中设施后可保存或调用同类方案；地区、供应商、价格来源和更新时间会一并保留。</p>
+          {parameterLibrary.length?<ul>{parameterLibrary.map(entry=><li key={entry.id}><span><b>{entry.name}</b><small>{entry.parameters.region||'未标地区'} · {entry.parameters.supplier||'未标供应商'} · {entry.parameters.source} · 更新 {entry.parameters.updatedAt||'未记录'}</small></span><button className="danger" onClick={()=>{if(!confirm(`删除参数方案「${entry.name}」？`))return;const next=parameterLibrary.filter(value=>value.id!==entry.id);saveParameterLibrary(next);setParameterLibrary(next);}}>删除</button></li>)}</ul>:<p className="v3-hint">暂无方案。选中设施，填写参数与来源后保存。</p>}
+        </section>}
+        {!realMode&&<section>
           <h3>难度与成长</h3>
           <div className="v3-difficulty-grid">
             {DIFFICULTY_ORDER.map(value => {
@@ -2292,15 +2362,16 @@ function App() {
             <b>{entry.label}</b><span>{entry.detail}</span><em>Lv.{entry.level}</em>
           </li>)}</ul> : <p className="v3-hint">已解锁全部设施、场景与挑战库内容。</p>}
           <p className="v3-hint">奖励由活动结果结算：经验、货币与声望随难度和评级变化；未达成仍有部分进度，但会扣除声望。设施、场景与挑战库按等级解锁，解锁后会真实出现在建造与选择列表中。</p>
-        </section>
+        </section>}
         <section>
           <h3>活动信息</h3>
-          <label>场景<select value={layout.activity.scene} onChange={e => changeScene(e.target.value as Layout['activity']['scene'])}>{scenes.map(([value, name]) => { const lock = sceneLock(profile, value); return <option key={value} value={value} disabled={!!lock}>{name}{lock ? `（Lv.${lock.level} 解锁）` : ''}</option>; })}</select></label>
+          <label>场景<select value={layout.activity.scene} onChange={e => changeScene(e.target.value as Layout['activity']['scene'])}>{scenes.map(([value, name]) => { const lock = realMode?null:sceneLock(profile, value); return <option key={value} value={value} disabled={!!lock}>{name}{lock ? `（Lv.${lock.level} 解锁）` : ''}</option>; })}</select></label>
           <label>活动名称<input value={layout.activity.title} onChange={e => setLayout(prev => ({...prev, activity: {...prev.activity, title: e.target.value}}))}/></label>
           <label>参与人数<input type="number" min="1" max="20000" value={layout.activity.people} onChange={e => setLayout(prev => ({...prev, activity: {...prev.activity, people: Number(e.target.value)}}))}/></label>
           <label>工作人员<input type="number" min="1" max="400" value={layout.params.staff} onChange={e => setLayout(prev => ({...prev, params: {...prev.params, staff: Math.max(1, Math.min(400, Number(e.target.value) || 1))}}))}/></label>
           <label>志愿者<input type="number" min="0" max="500" value={layout.volunteers ?? 0} onChange={e => setLayout(prev => ({...prev, volunteers: Math.max(0, Math.min(500, Number(e.target.value) || 0))}))}/></label>
-          <label>活动预算 ¥<input type="number" min="0" value={layout.activity.budget} onChange={e => setLayout(prev => ({...prev, activity: {...prev.activity, budget: Number(e.target.value)}}))}/></label>
+          {!realMode&&<label>游戏预算 ¥<input type="number" min="0" value={layout.activity.budget} onChange={e => setLayout(prev => ({...prev, activity: {...prev.activity, budget: Number(e.target.value)}}))}/></label>}
+          <label>活动时长 / 分钟<input type="number" min="1" value={layout.activity.duration} onChange={e=>setLayout(prev=>({...prev,activity:{...prev.activity,duration:Math.max(1,Number(e.target.value)||1)}}))}/></label>
           <label>场地尺寸<input type="number" min="20" max="120" value={layout.size} onChange={e => setLayout(prev => ({...prev, size: Math.max(20, Math.min(120, Number(e.target.value) || 48))}))}/></label>
           <label>地面材质<select value={layout.terrain ?? 'grass'} onChange={e => setLayout(prev => ({...prev, terrain: e.target.value as Layout['terrain']}))}><option value="grass">草地</option><option value="plaza">广场</option><option value="track">跑道</option></select></label>
         </section>
@@ -2313,7 +2384,11 @@ function App() {
           <h3>画面与操作</h3>
           <label>画面质量<select value={settings.quality} onChange={e => patchSettings({quality: e.target.value as QualityPreference})}><option value="auto">自动（推荐 {recommendedQuality()}）</option><option value="low">低</option><option value="medium">中</option><option value="high">高</option></select></label>
           <p className="v3-hint">当前使用 {quality} 画质：影响像素比、阴影分辨率、城市分块半径与车辆数量。</p>
-          <label>镜头灵敏度 <span className="v3-value">{settings.sensitivity.toFixed(1)}×</span><input type="range" min="0.4" max="2" step="0.1" value={settings.sensitivity} onChange={e => patchSettings({sensitivity: Number(e.target.value)})}/></label>
+          <label>旋转灵敏度 <span className="v3-value">{settings.sensitivity.toFixed(1)}×</span><input type="range" min="0.4" max="2" step="0.1" value={settings.sensitivity} onChange={e => patchSettings({sensitivity: Number(e.target.value)})}/></label>
+          <label>平移速度 <span className="v3-value">{settings.panSensitivity.toFixed(1)}×</span><input type="range" min="0.4" max="2" step="0.1" value={settings.panSensitivity} onChange={e => patchSettings({panSensitivity: Number(e.target.value)})}/></label>
+          <label>缩放速度 <span className="v3-value">{settings.zoomSensitivity.toFixed(1)}×</span><input type="range" min="0.4" max="2" step="0.1" value={settings.zoomSensitivity} onChange={e => patchSettings({zoomSensitivity: Number(e.target.value)})}/></label>
+          <label className="v3-check"><input type="checkbox" checked={settings.invertRotation} onChange={e => patchSettings({invertRotation:e.target.checked})}/>反向水平旋转</label>
+          <p className="v3-hint">左键拖动空地平移，右键拖动水平旋转，中键拖动平移，滚轮缩放；镜头俯仰受限。Shift + 左键拖框多选。</p>
           <label className="v3-check"><input type="checkbox" checked={settings.snap} onChange={e => patchSettings({snap: e.target.checked})}/>网格吸附（关闭后自由放置）</label>
           <label className="v3-check"><input type="checkbox" checked={settings.shadows} onChange={e => patchSettings({shadows: e.target.checked})}/>日光阴影</label>
           <label className="v3-check"><input type="checkbox" checked={settings.sound} onChange={e => patchSettings({sound: e.target.checked})}/>现场提示音</label>

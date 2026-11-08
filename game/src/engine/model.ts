@@ -35,7 +35,9 @@ export interface Snapshot {
   schema: 1; id: string; createdAt: string; fingerprint: string; title: string; scene: Scene;
   people: number; duration: number; outdoor: boolean; equipmentName: string; activityName: string;
   tasks: Task[]; assumptions: string[]; roles: {name:string; count:number}[]; resources: string[];
-  facility?: FacilityMetrics; buildCost?: number; challenge?: ChallengeConfig; difficulty?: 'novice' | 'normal' | 'hard' | 'expert' | 'extreme';
+  facility?: FacilityMetrics; buildCost?: number; challenge?: ChallengeConfig; difficulty?: 'novice' | 'normal' | 'hard' | 'expert' | 'extreme';simulationMode?:boolean;
+  simulationActionCosts?:Partial<Record<DirectorMitigation,number>>;
+  simulationIncidentCosts?:Partial<Record<RiskKind|DirectorEventKind,number>>;
 }
 export interface RuntimeTask extends Task { remaining: number; actualStart?: number; actualEnd?: number; status: '等待' | '进行中' | '已完成'; }
 export type RiskKind = 'equipment' | 'weather' | 'traffic' | 'supply' | 'price' | 'absence';

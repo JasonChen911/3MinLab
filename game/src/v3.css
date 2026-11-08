@@ -738,3 +738,26 @@
   .v3-profile-stats{grid-template-columns:repeat(2,1fr)}
 }
 
+.v8-mode-switch{position:absolute;top:calc(100% + 8px);left:335px;z-index:4;display:flex;gap:4px;padding:3px;width:max-content;max-width:calc(100vw - 350px);border:1px solid #cddfcf;border-radius:9px;background:#f1f8ed;box-shadow:0 3px 12px #214e3a22}
+.v8-game .v3-toast,.v8-reality .v3-toast{top:128px}
+.v8-mode-switch button{border:0;border-radius:7px;padding:5px 9px;background:transparent;color:#526e5f;font-weight:700;cursor:pointer;white-space:nowrap}
+.v8-mode-switch button.active{background:#327d67;color:#fff;box-shadow:0 2px 6px #214e3a30}
+.v8-parameter-card{display:grid;gap:9px;margin:12px 0;padding:12px;border:1px solid #cfdde9;border-radius:12px;background:#f5f9ff}
+.v8-parameter-card h4{display:flex;justify-content:space-between;align-items:center;margin:0;color:#355173}
+.v8-parameter-card h4 small{font-size:10px;font-weight:500;color:#657d93}
+.v8-parameter-card .v3-row select{min-width:130px;max-width:100%}
+.v8-finance-settings{border-left:3px solid #537fc1}
+.v8-library-settings ul{list-style:none;margin:0;padding:0;display:grid;gap:7px}
+.v8-library-settings li{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px;border:1px solid #d7e4ed;border-radius:9px;background:#f7fbff}
+.v8-library-settings li span{display:grid;gap:3px;min-width:0}
+.v8-library-settings li small{overflow-wrap:anywhere;color:#697e8b}
+.v8-analysis-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+.v8-analysis-summary>*{display:block;padding:7px;border-radius:8px;background:#eef5fc;color:#355a78;font-size:11px}
+.v8-analysis-summary>b{font-size:22px;color:#24537e;grid-row:span 2;display:grid;place-items:center}
+.v8-primary-risk{margin:0;padding:8px 10px;border-left:3px solid #d89641;background:#fff9ec;color:#684d2c;font-size:11px;line-height:1.5}
+.v8-analysis-details>summary{cursor:pointer;padding:8px;color:#335b76;font-size:11px;font-weight:700}
+.v8-analysis-details[open]{display:grid;gap:8px}
+.v8-reality .v3-sim>.v7-event-stream,.v8-game .v3-sim>.v7-event-stream{position:fixed;left:66px;right:auto;top:108px;bottom:120px;width:min(20vw,310px);min-width:250px;max-height:none;z-index:20}
+.v3-sim>.v7-event-stream .v7-event-list{max-height:none;overflow:auto;min-height:0}
+@media(max-width:1100px){.v8-reality .v3-sim>.v7-event-stream,.v8-game .v3-sim>.v7-event-stream{width:min(30vw,300px)}}
+@media(max-width:700px){.v8-reality .v3-sim>.v7-event-stream,.v8-game .v3-sim>.v7-event-stream{left:10px;right:10px;top:85px;bottom:190px;width:auto;min-width:0}.v8-mode-switch{left:10px;max-width:calc(100vw - 20px)}.v8-mode-switch button{font-size:10px;padding:5px}.v8-game .v3-toast,.v8-reality .v3-toast{top:128px}}

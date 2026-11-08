@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import {trackPoint} from './world/track';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {
-  CATALOG, bounds, itemCost, itemHeight, placement,
+  CATALOG, bounds, itemCost, simulationItemCost, itemHeight, placement,
   type Item, type Kind, type Layout, type PersonSave, type SimulationState,
 } from './game';
 import {disposeAssets, kindHeight, model} from './world/models';
@@ -45,6 +45,9 @@ type Props = {
   quality: Quality;
   shadows: boolean;
   sensitivity: number;
+  panSensitivity:number;
+  zoomSensitivity:number;
+  invertRotation:boolean;
   snap: boolean;
   personSelected: string;
   debug: boolean;
@@ -260,7 +263,7 @@ function outlineFor(item: Item, color: number, opacity: number, flat = false): T
   return group;
 }
 
-export default function Scene3D({layout, state, selected, selectedMany, place, tool, mode, simSpeed, cameraAction, quality, shadows, sensitivity, snap, personSelected, debug, replayPeople, restorePeople, analysisMarks, analysisGhosts, lighting, showcase, autoRotate, onSelect, onSelectMany, onEdit, onPlace, onMove, onBatchMove, onBatchRotate, onDelete, onDeleteMany, onPreview, onPersonSelect, onPersonInfo, onPeopleSnapshot, onPeopleProvider, onNudge, onDebugStats, onCaptureReady}: Props) {
+export default function Scene3D({layout, state, selected, selectedMany, place, tool, mode, simSpeed, cameraAction, quality, shadows, sensitivity, panSensitivity, zoomSensitivity, invertRotation, snap, personSelected, debug, replayPeople, restorePeople, analysisMarks, analysisGhosts, lighting, showcase, autoRotate, onSelect, onSelectMany, onEdit, onPlace, onMove, onBatchMove, onBatchRotate, onDelete, onDeleteMany, onPreview, onPersonSelect, onPersonInfo, onPeopleSnapshot, onPeopleProvider, onNudge, onDebugStats, onCaptureReady}: Props) {
   const host = useRef<HTMLDivElement>(null);
   const world = useRef<World | null>(null);
   const callbackSource = {layout, state, selected, selectedMany, personSelected, place, tool, mode, simSpeed, snap, showcase, replayPeople, onSelect, onSelectMany, onEdit, onPlace, onMove, onBatchMove, onBatchRotate, onDelete, onDeleteMany, onPreview, onPersonSelect, onPersonInfo, onPeopleSnapshot, onPeopleProvider, onNudge, onDebugStats, onCaptureReady};
@@ -294,9 +297,9 @@ export default function Scene3D({layout, state, selected, selectedMany, place, t
     controls.maxPolarAngle = CAMERA_LIMITS.maxPolar;
     controls.minDistance = CAMERA_LIMITS.minDistance;
     controls.maxDistance = CAMERA_LIMITS.maxDistance;
-    controls.rotateSpeed = .62 * sensitivity;
-    controls.panSpeed = .9 * sensitivity;
-    controls.zoomSpeed = .9 * sensitivity;
+    controls.rotateSpeed = .62 * sensitivity * (invertRotation?-1:1);
+    controls.panSpeed = .9 * panSensitivity;
+    controls.zoomSpeed = .9 * zoomSensitivity;
     controls.touches = {ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE};
     controls.mouseButtons = {LEFT: null as unknown as THREE.MOUSE, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.ROTATE};
     controls.target.copy(opening.target);
@@ -486,7 +489,7 @@ export default function Scene3D({layout, state, selected, selectedMany, place, t
       const outline = outlineFor(item, color, .85, true);
       current.hoverOutline.add(outline);
       renderer.domElement.style.cursor = deleting ? 'not-allowed' : item.locked ? 'default' : 'grab';
-      callbacks.current.onPreview(`${CATALOG[item.kind].name} · ¥${itemCost(item)} · ${item.locked ? '已锁定' : deleting ? '点击删除' : '拖动移动，双击编辑，右键旋转，Shift 点击多选'}`);
+      callbacks.current.onPreview(`${CATALOG[item.kind].name} · ${callbacks.current.layout.operatingMode==='simulation'?'现实成本 ¥'+simulationItemCost(item)+'（未报价项按未知暂计）':'游戏金币 '+itemCost(item)} · ${item.locked ? '已锁定' : deleting ? '点击删除' : '拖动移动，双击编辑，右键旋转，Shift 点击多选'}`);
     };
 
     const hideMarquee = () => {
@@ -547,6 +550,7 @@ export default function Scene3D({layout, state, selected, selectedMany, place, t
       renderer.domElement.style.cursor = 'grabbing';
     };
 
+    let groundPan: {x:number;y:number}|null=null;
     const onPointerDown = (event: PointerEvent) => {
       current.down = {x: event.clientX, y: event.clientY, button: event.button};
       if (event.button === 2) {
@@ -573,10 +577,14 @@ export default function Scene3D({layout, state, selected, selectedMany, place, t
         if (person) { c.onSelect(''); c.onSelectMany([]); return; }
         if (c.tool === 'select') {
           c.onSelect('');
-          if (c.mode === 'build') {
+          if (c.mode === 'build' && event.shiftKey) {
             const rect = renderer.domElement.getBoundingClientRect();
             current.marqueeStart = {x: event.clientX - rect.left, y: event.clientY - rect.top};
             try { renderer.domElement.setPointerCapture(event.pointerId); } catch { /* synthetic pointer or lost capture */ }
+          } else {
+            groundPan={x:event.clientX,y:event.clientY};
+            try { renderer.domElement.setPointerCapture(event.pointerId); } catch { /* synthetic pointer or lost capture */ }
+            renderer.domElement.style.cursor='grabbing';
           }
         }
         return;
@@ -597,6 +605,17 @@ export default function Scene3D({layout, state, selected, selectedMany, place, t
 
     const onPointerMove = (event: PointerEvent) => {
       current.pointerInside = true;
+      if(groundPan&&current.down?.button===0){
+        const dx=event.clientX-groundPan.x,dy=event.clientY-groundPan.y;
+        groundPan={x:event.clientX,y:event.clientY};
+        camera.updateMatrixWorld();
+        const right=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,0);right.y=0;right.normalize();
+        const back=new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld,2);back.y=0;back.normalize();
+        const distance=controls.getDistance()*.0016*(controls.panSpeed/.9);
+        const shift=right.multiplyScalar(-dx*distance).addScaledVector(back,-dy*distance);
+        camera.position.add(shift);controls.target.add(shift);controls.update();
+        return;
+      }
       if (current.marqueeStart && current.down && current.down.button === 0) {
         const rect = renderer.domElement.getBoundingClientRect();
         const x = event.clientX - rect.left, y = event.clientY - rect.top;
@@ -665,6 +684,7 @@ export default function Scene3D({layout, state, selected, selectedMany, place, t
     };
 
     const onPointerUp = (event: PointerEvent) => {
+      if(event.button===0&&groundPan){groundPan=null;current.down=null;renderer.domElement.style.cursor='grab';try{renderer.domElement.releasePointerCapture(event.pointerId);}catch{/* already released */}return;}
       if (event.button === 2) {
         current.rightDown = false;
         const start = current.rightStart;
@@ -790,6 +810,7 @@ export default function Scene3D({layout, state, selected, selectedMany, place, t
       }
     };
     const onWindowBlur = () => {
+      groundPan=null;
       cancelInteraction();
       setGhost(null);
       current.keys.clear();
@@ -800,6 +821,7 @@ export default function Scene3D({layout, state, selected, selectedMany, place, t
     renderer.domElement.addEventListener('pointerdown', onPointerDown);
     renderer.domElement.addEventListener('pointermove', onPointerMove);
     renderer.domElement.addEventListener('pointerup', onPointerUp);
+    renderer.domElement.addEventListener('pointercancel', onWindowBlur);
     renderer.domElement.addEventListener('pointerleave', () => { current.pointerInside = false; setGhost(null); if (!current.marqueeActive) hideMarquee(); });
     renderer.domElement.addEventListener('dblclick', onDoubleClick);
     renderer.domElement.addEventListener('dragover', onDragOver);
@@ -949,6 +971,7 @@ export default function Scene3D({layout, state, selected, selectedMany, place, t
       renderer.domElement.removeEventListener('pointerdown', onPointerDown);
       renderer.domElement.removeEventListener('pointermove', onPointerMove);
       renderer.domElement.removeEventListener('pointerup', onPointerUp);
+      renderer.domElement.removeEventListener('pointercancel', onWindowBlur);
       renderer.domElement.removeEventListener('dblclick', onDoubleClick);
       renderer.domElement.removeEventListener('dragover', onDragOver);
       renderer.domElement.removeEventListener('drop', onDrop);
@@ -1327,10 +1350,10 @@ export default function Scene3D({layout, state, selected, selectedMany, place, t
   useEffect(() => {
     const w = world.current;
     if (!w) return;
-    w.controls.rotateSpeed = .62 * sensitivity;
-    w.controls.panSpeed = .9 * sensitivity;
-    w.controls.zoomSpeed = .9 * sensitivity;
-  }, [sensitivity]);
+    w.controls.rotateSpeed = .62 * sensitivity * (invertRotation?-1:1);
+    w.controls.panSpeed = .9 * panSensitivity;
+    w.controls.zoomSpeed = .9 * zoomSensitivity;
+  }, [sensitivity,panSensitivity,zoomSensitivity,invertRotation]);
 
   return <div className="scene-canvas" ref={host} aria-label="开放世界三维活动建设与模拟场地"/>;
 }

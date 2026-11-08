@@ -15,8 +15,8 @@ export function advanceFacilities(s: SimulationState, r: Random): FacilityRuntim
   // Demo demand rates, not historical probabilities. Queue state persists through saves.
   runtime.toiletQueue += r.poisson(occupancy * .005);
   runtime.vendorQueue += r.poisson(occupancy * (s.snapshot.scene === 'performance' || s.snapshot.scene === 'community' ? .007 : .003));
-  const toiletDone = Math.min(runtime.toiletQueue, r.poisson(toilets * 2.4));
-  const vendorDone = Math.min(runtime.vendorQueue, r.poisson(vendors * (s.actions.some(action => action.name.includes('后备人员')) ? 2.8 : 1.6)));
+  const toiletDone = Math.min(runtime.toiletQueue, r.poisson(s.snapshot.simulationMode?(facility?.toiletServicePerMinute??toilets*2.4):toilets*2.4));
+  const vendorDone = Math.min(runtime.vendorQueue, r.poisson((s.snapshot.simulationMode?(facility?.vendorServicePerMinute??vendors*1.6):vendors*1.6) * (s.actions.some(action => action.name.includes('后备人员')) ? 1.75 : 1)));
   runtime.toiletQueue -= toiletDone;
   runtime.vendorQueue -= vendorDone;
   runtime.toiletServed += toiletDone;
