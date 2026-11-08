@@ -428,67 +428,110 @@ export interface PersonRig {
   group: THREE.Group;
   leftArm: THREE.Group;
   rightArm: THREE.Group;
+  leftElbow: THREE.Group;
+  rightElbow: THREE.Group;
   leftLeg: THREE.Group;
   rightLeg: THREE.Group;
+  leftKnee: THREE.Group;
+  rightKnee: THREE.Group;
   torso: THREE.Group;
 }
 
 export function createPerson(shirt: number, pants: number, skin = 0xe6c2a4, hair = 0x4a382c): PersonRig {
   const group = new THREE.Group();
+  const variety = ((shirt ^ (hair << 1) ^ skin) & 7) / 7;
+  group.scale.setScalar(.965 + variety * .07);
   const torso = new THREE.Group();
-  torso.position.y = 1.02;
+  torso.position.y = 1.03;
   group.add(torso);
-  const body = addMesh(torso, geometry('person-torso', () => new THREE.CapsuleGeometry(.19, .42, 4, 8)), material(shirt));
-  body.position.y = .1;
-  const head = addMesh(group, sphereGeometry(.16, 10), material(skin), 0, 1.52, 0);
-  head.scale.set(1, 1.12, .95);
-  addMesh(group, sphereGeometry(.17, 8), material(hair), 0, 1.6, -.02).scale.set(1.02, .72, 1.02);
-  addMesh(group, boxGeometry(.1, .06, .04), material(0x2b2b2b), 0, 1.53, .14);
+  const body = addMesh(torso, geometry('person-shaped-torso', () => new THREE.LatheGeometry([
+    new THREE.Vector2(0, -.36), new THREE.Vector2(.13, -.36), new THREE.Vector2(.18, -.25),
+    new THREE.Vector2(.16, -.04), new THREE.Vector2(.22, .2), new THREE.Vector2(.19, .31),
+    new THREE.Vector2(.095, .38), new THREE.Vector2(0, .38),
+  ], 12)), material(shirt), 0, .06);
+  body.scale.set(.96 + variety * .08, 1, .78);
+  addMesh(torso, cylinderGeometry(.065, .075, .13, 10), material(skin), 0, .43);
+  addMesh(torso, cylinderGeometry(.105, .13, .045, 12), material(new THREE.Color(shirt).multiplyScalar(.78).getHex()), 0, .385);
+  const headRoot = new THREE.Group();
+  headRoot.position.y = .57;
+  torso.add(headRoot);
+  const head = addMesh(headRoot, sphereGeometry(.16, 12), material(skin));
+  head.scale.set(.96, 1.05, .9);
+  const hairCap = addMesh(headRoot, geometry('person-hair-cap', () => new THREE.SphereGeometry(.169, 12, 8, 0, Math.PI * 2, 0, Math.PI * .51)), material(hair, {roughness: 1}), 0, .025, -.01);
+  hairCap.scale.z = 1.06;
+  const part = variety < .5 ? -1 : 1;
+  addMesh(headRoot, sphereGeometry(.075, 8), material(new THREE.Color(hair).multiplyScalar(1.13).getHex(), {roughness: 1}), part * .052, .12, .085).scale.set(1, .5, .78);
+  for (const side of [-1, 1]) {
+    addMesh(headRoot, sphereGeometry(.031, 8), material(skin), side * .153, -.015, 0);
+    addMesh(headRoot, sphereGeometry(.035, 8), material(hair, {roughness: 1}), side * .125, .045, -.09);
+    addMesh(headRoot, sphereGeometry(.012, 6), material(0x443a33), side * .055, -.01, .146);
+  }
+  addMesh(headRoot, sphereGeometry(.025, 8), material(skin), 0, -.06, .148).scale.set(.7, 1, .8);
+  addMesh(group, sphereGeometry(.18, 10), material(pants), 0, .75, 0).scale.set(1, .55, .78);
   const arm = (x: number) => {
     const pivot = new THREE.Group();
-    pivot.position.set(x, 1.38, 0);
+    pivot.position.set(x, 1.36, 0);
     group.add(pivot);
-    const limb = addMesh(pivot, geometry('person-arm', () => new THREE.CapsuleGeometry(.055, .36, 3, 6)), material(shirt));
-    limb.position.y = -.24;
-    addMesh(pivot, sphereGeometry(.065, 6), material(skin), 0, -.47, 0);
-    return pivot;
+    addMesh(pivot, geometry('person-upper-arm', () => new THREE.CapsuleGeometry(.076, .17, 3, 8)), material(shirt), 0, -.12);
+    const elbow = new THREE.Group();
+    elbow.position.y = -.245;
+    pivot.add(elbow);
+    addMesh(elbow, geometry('person-forearm', () => new THREE.CapsuleGeometry(.052, .16, 3, 8)), material(skin), 0, -.11);
+    addMesh(elbow, sphereGeometry(.056, 8), material(skin), 0, -.235);
+    return {pivot, elbow};
   };
   const leg = (x: number) => {
     const pivot = new THREE.Group();
-    pivot.position.set(x, .82, 0);
+    pivot.position.set(x, .8, 0);
     group.add(pivot);
-    const limb = addMesh(pivot, geometry('person-leg', () => new THREE.CapsuleGeometry(.075, .48, 3, 6)), material(pants));
-    limb.position.y = -.3;
-    addMesh(pivot, boxGeometry(.15, .08, .25), material(0x3a3a3a), 0, -.62, .05);
-    return pivot;
+    addMesh(pivot, geometry('person-thigh', () => new THREE.CapsuleGeometry(.08, .28, 3, 8)), material(pants), 0, -.18);
+    const knee = new THREE.Group();
+    knee.position.y = -.365;
+    pivot.add(knee);
+    addMesh(knee, geometry('person-shin', () => new THREE.CapsuleGeometry(.067, .28, 3, 8)), material(pants), 0, -.16);
+    addMesh(knee, sphereGeometry(.085, 10), material(0x34404a), 0, -.345, .06).scale.set(.95, .55, 1.35);
+    return {pivot, knee};
   };
-  const leftArm = arm(-.26), rightArm = arm(.26), leftLeg = leg(-.11), rightLeg = leg(.11);
+  const leftArmRig = arm(-.24), rightArmRig = arm(.24), leftLegRig = leg(-.105), rightLegRig = leg(.105);
   group.userData.isPerson = true;
-  return {group, leftArm, rightArm, leftLeg, rightLeg, torso};
+  return {
+    group, torso,
+    leftArm: leftArmRig.pivot, rightArm: rightArmRig.pivot,
+    leftElbow: leftArmRig.elbow, rightElbow: rightArmRig.elbow,
+    leftLeg: leftLegRig.pivot, rightLeg: rightLegRig.pivot,
+    leftKnee: leftLegRig.knee, rightKnee: rightLegRig.knee,
+  };
 }
 
 export function animatePerson(rig: PersonRig, time: number, moving: boolean, speed = 1, pose: 'normal' | 'seated' | 'resting' | 'performing' | 'running' = 'normal') {
   const phase = time * 8 * Math.max(.5, speed);
-  const amount = pose === 'running' ? .95 : moving ? .62 : .06;
+  const amount = pose === 'running' ? .78 : moving ? .5 : .025;
   const swing = Math.sin(phase) * amount;
   rig.leftLeg.rotation.x = swing;
   rig.rightLeg.rotation.x = -swing;
-  rig.leftArm.rotation.x = -swing * .8;
-  rig.rightArm.rotation.x = swing * .8;
-  rig.leftArm.rotation.z = .08;
-  rig.rightArm.rotation.z = -.08;
-  const bob = moving ? Math.abs(Math.sin(phase)) * .045 : Math.sin(time * 2) * .01;
-  rig.torso.position.y = 1.02 + bob;
+  rig.leftKnee.rotation.x = moving ? Math.max(0, swing) * .75 : 0;
+  rig.rightKnee.rotation.x = moving ? Math.max(0, -swing) * .75 : 0;
+  rig.leftArm.rotation.x = -swing * .65;
+  rig.rightArm.rotation.x = swing * .65;
+  rig.leftElbow.rotation.x = .15 + (moving ? Math.max(0, -swing) * .4 : 0);
+  rig.rightElbow.rotation.x = .15 + (moving ? Math.max(0, swing) * .4 : 0);
+  rig.leftArm.rotation.z = .09;
+  rig.rightArm.rotation.z = -.09;
+  const bob = moving ? Math.abs(Math.sin(phase)) * .018 : Math.sin(time * 2) * .006;
+  rig.torso.position.y = 1.03 + bob;
+  rig.torso.rotation.z = moving ? Math.sin(phase) * .012 : 0;
   if (pose === 'seated' || pose === 'resting') {
     rig.leftLeg.rotation.x = pose === 'seated' ? -1.2 : -.25;
     rig.rightLeg.rotation.x = pose === 'seated' ? -1.2 : -.25;
+    rig.leftKnee.rotation.x = pose === 'seated' ? 1.35 : .38;
+    rig.rightKnee.rotation.x = pose === 'seated' ? 1.35 : .38;
     rig.leftArm.rotation.x = pose === 'seated' ? -.2 : .12;
     rig.rightArm.rotation.x = pose === 'seated' ? -.2 : .12;
-    rig.torso.position.y = 1.02;
+    rig.torso.position.y = 1.03;
   } else if (pose === 'performing') {
     rig.leftArm.rotation.z = .55 + Math.sin(time * 3) * .28;
     rig.rightArm.rotation.z = -.55 - Math.sin(time * 3 + 1) * .28;
-    rig.torso.position.y = 1.02 + Math.abs(Math.sin(time * 3)) * .055;
+    rig.torso.position.y = 1.03 + Math.abs(Math.sin(time * 3)) * .045;
   }
 }
 
