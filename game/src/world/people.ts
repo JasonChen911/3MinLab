@@ -15,6 +15,7 @@ import type {DebugSnapshot} from './debug';
 type PersonState =
   | 'arriving' | 'queueing' | 'checkin' | 'toSeat' | 'seated' | 'watching' | 'toRest' | 'resting'
   | 'toComfort' | 'comforting' | 'toSocial' | 'socializing'
+  | 'toToilet' | 'waitingToilet' | 'usingToilet' | 'toVendor' | 'waitingVendor' | 'buyingFood'
   | 'toStage' | 'performing' | 'hosting' | 'patrolling' | 'serving' | 'toGoal' | 'leaving' | 'idle';
 
 interface Seat {
@@ -94,7 +95,7 @@ export interface PersonInfo {
 const PERSON_RADIUS = .34;
 const MAX_AGENTS = 64;
 const ARRIVAL = new Set<PersonState>(['arriving', 'queueing', 'checkin']);
-const ATTEND = new Set<PersonState>(['toSeat', 'seated', 'watching', 'toRest', 'resting', 'toComfort', 'comforting', 'toSocial', 'socializing']);
+const ATTEND = new Set<PersonState>(['toSeat', 'seated', 'watching', 'toRest', 'resting', 'toComfort', 'comforting', 'toSocial', 'socializing', 'toToilet', 'waitingToilet', 'usingToilet', 'toVendor', 'waitingVendor', 'buyingFood']);
 const STAFF_ROLES = new Set<Role>(['staff', 'volunteer', 'service', 'security']);
 const SEATING_KINDS = new Set<Kind>(['bleachers', 'chair']);
 
@@ -103,10 +104,11 @@ const STATE_LABELS: Record<PersonState, string> = {
   watching: '站立观看', toRest: '前往休息区', resting: '休息中', toComfort: '前往补水点', comforting: '补水 / 如厕',
   toSocial: '前往社交区', socializing: '交流中', toStage: '前往舞台', performing: '演出中', hosting: '主持中',
   patrolling: '巡逻中', serving: '岗位值守', toGoal: '前往岗位', leaving: '离场中', idle: '待命',
+  toToilet: '前往卫生间', waitingToilet: '卫生间排队', usingToilet: '使用卫生间', toVendor: '前往摊位', waitingVendor: '摊位排队', buyingFood: '购买餐饮',
 };
 export const PERSON_STATE_LABELS = STATE_LABELS;
 const PERSON_STATES = new Set<PersonState>(Object.keys(STATE_LABELS) as PersonState[]);
-const NEEDS_ROUTE = new Set<PersonState>(['arriving', 'queueing', 'checkin', 'toSeat', 'toRest', 'toComfort', 'toSocial', 'toStage', 'toGoal', 'leaving']);
+const NEEDS_ROUTE = new Set<PersonState>(['arriving', 'queueing', 'checkin', 'toSeat', 'toRest', 'toComfort', 'toSocial', 'toToilet', 'toVendor', 'toStage', 'toGoal', 'leaving']);
 const DECISION_STATES = new Set<PersonState>(['seated', 'watching', 'idle', 'patrolling', 'serving', 'hosting']);
 const VISITOR_ROLES = new Set<Role>(['audience', 'participant']);
 const TRAIT_KEYS: (keyof Personality)[] = ['curiosity', 'patience', 'stamina', 'social', 'adventure', 'mobility'];
@@ -185,6 +187,7 @@ export class PeopleSystem {
   private pushes: {id: string; dx: number; dz: number}[] = [];
   private quality: 'low' | 'medium' | 'high' = 'high';
   private frozen = false;
+  private facilityServedSeen = {toilet: 0, vendor: 0};
 
   constructor(scene: THREE.Scene) { scene.add(this.root); }
 
@@ -586,6 +589,8 @@ export class PeopleSystem {
     if (agent.path.length) return 'walking';
     switch (agent.state) {
       case 'queueing': return 'queueing';
+      case 'waitingToilet': case 'waitingVendor': return 'queueing';
+      case 'usingToilet': case 'buyingFood': return 'comforting';
       case 'seated': return 'seated';
       case 'watching': return 'watching';
       case 'resting': return 'resting';
@@ -743,6 +748,7 @@ export class PeopleSystem {
       const position = agent.rig.group.position;
       return this.facilityPoint(SOCIAL_KINDS, position, this.goals.area);
     }
+    if (agent.state === 'toToilet' || agent.state === 'waitingToilet' || agent.state === 'toVendor' || agent.state === 'waitingVendor') return agent.goal;
     if (ARRIVAL.has(agent.state)) return this.goals.desk;
     if (agent.role === 'medical') return this.goals.medical;
     if (agent.role === 'service') return this.goals.service;
@@ -765,6 +771,10 @@ export class PeopleSystem {
     if (agent.state === 'toComfort') return '前往补水点';
     if (agent.state === 'comforting') return '补水 / 如厕';
     if (agent.state === 'toSocial') return '前往社交区';
+    if (agent.state === 'toToilet' || agent.state === 'waitingToilet') return '卫生间入口';
+    if (agent.state === 'toVendor' || agent.state === 'waitingVendor') return '摊位排队区';
+    if (agent.state === 'usingToilet') return '使用卫生间';
+    if (agent.state === 'buyingFood') return '摊位购物';
     if (agent.state === 'socializing') return '人群交流区';
     if (agent.state === 'queueing') return '签到排队';
     if (agent.state === 'checkin') return '签到台';
@@ -900,6 +910,43 @@ export class PeopleSystem {
         if (agent) this.routeAgent(agent, offset(this.goals.entry, agent.seed, 1.5), '前往出口');
       }
     }
+    this.syncFacilityQueues(role);
+  }
+
+  /** Representative people mirror the engine's queue counts at actual facility entrances. */
+  private syncFacilityQueues(role: Role) {
+    if (!this.state || !this.layout) return;
+    for (const [key, kind, total, served, targets, moving, waiting] of [
+      ['toilet', '卫生间', this.state.facilities?.toiletQueue ?? 0, this.state.facilities?.toiletServed ?? 0, this.layout.items.filter(item => item.kind === 'toilet' && !item.damaged), 'toToilet', 'waitingToilet'],
+      ['vendor', '摊位', this.state.facilities?.vendorQueue ?? 0, this.state.facilities?.vendorServed ?? 0, this.layout.items.filter(item => (item.kind === 'tent' || item.kind === 'tentSmall') && !item.damaged), 'toVendor', 'waitingVendor'],
+    ] as const) {
+      let active = this.agents.filter(agent => agent.active && agent.role === role && (agent.state === moving || agent.state === waiting));
+      const desired = targets.length ? Math.min(4, Math.ceil(total / 5)) : 0;
+      if (served < this.facilityServedSeen[key]) this.facilityServedSeen[key] = served;
+      const finished = Math.min(active.filter(agent => agent.state === waiting).length, served - this.facilityServedSeen[key]);
+      for (const agent of active.filter(agent => agent.state === waiting).slice(0, finished)) {
+        agent.state = key === 'toilet' ? 'usingToilet' : 'buyingFood';
+        agent.timer = 1.5 + agent.serial % 3;
+        agent.task = this.taskFor(agent.role, agent.state);
+        agent.intent = `${kind}已轮到该访客，服务结束后返回活动区`;
+      }
+      this.facilityServedSeen[key] = served;
+      active = active.filter(agent => agent.state === moving || agent.state === waiting);
+      for (const agent of active.slice(desired)) this.returnFromNeed(agent);
+      active = active.filter(agent => agent.state === moving || agent.state === waiting);
+      for (let i = active.length; i < desired; i++) {
+        const agent = this.agents.find(candidate => candidate.active && candidate.role === role && ['watching','seated','toSeat','resting'].includes(candidate.state));
+        if (!agent) break;
+        this.releaseSeat(agent);
+        const item = targets[i % targets.length];
+        const footprint = bounds(item);
+        const point = {x: item.x + (i % 3 - 1) * .8, z: item.z + footprint.d / 2 + 1.1 + Math.floor(i / 3) * .9};
+        agent.state = moving;
+        agent.task = `${kind}排队`;
+        agent.intent = `${kind}当前有 ${total} 人等待`;
+        if (!this.routeAgent(agent, point, `${kind}入口排队`)) this.returnFromNeed(agent);
+      }
+    }
   }
 
   private queuePoint(index: number): Point {
@@ -996,6 +1043,10 @@ export class PeopleSystem {
     if (state === 'toRest' || state === 'resting') return '休息补给';
     if (state === 'toComfort' || state === 'comforting') return '补水与短暂调整';
     if (state === 'toSocial' || state === 'socializing') return '与现场人群交流';
+    if (state === 'toToilet' || state === 'waitingToilet') return '等待使用卫生间';
+    if (state === 'toVendor' || state === 'waitingVendor') return '等待摊位服务';
+    if (state === 'usingToilet') return '使用卫生间';
+    if (state === 'buyingFood') return '购买餐饮';
     if (role === 'performer') return state === 'performing' ? '场上演出 / 比赛' : '准备演出 / 比赛';
     if (role === 'host') return '主持活动流程';
     if (role === 'referee') return '执裁与记录成绩';
@@ -1098,6 +1149,11 @@ export class PeopleSystem {
     if (agent.state === 'toSocial') {
       agent.state = 'socializing';
       agent.timer = 5 + (agent.serial % 5);
+      agent.task = this.taskFor(agent.role, agent.state);
+      return;
+    }
+    if (agent.state === 'toToilet' || agent.state === 'toVendor') {
+      agent.state = agent.state === 'toToilet' ? 'waitingToilet' : 'waitingVendor';
       agent.task = this.taskFor(agent.role, agent.state);
       return;
     }
@@ -1213,7 +1269,7 @@ export class PeopleSystem {
       return;
     }
     if (!agent.path.length && (agent.state === 'arriving' || agent.state === 'queueing' || agent.state === 'toSeat'
-      || agent.state === 'toRest' || agent.state === 'toComfort' || agent.state === 'toSocial' || agent.state === 'toStage'
+      || agent.state === 'toRest' || agent.state === 'toComfort' || agent.state === 'toSocial' || agent.state === 'toToilet' || agent.state === 'toVendor' || agent.state === 'toStage'
       || agent.state === 'toGoal' || agent.state === 'leaving')
       && Math.hypot(agent.goal.x - group.position.x, agent.goal.z - group.position.z) < .9) {
       this.arrive(agent);
@@ -1272,7 +1328,7 @@ export class PeopleSystem {
           agent.task = this.taskFor(agent.role, agent.state);
           this.routeAgent(agent, this.goals.stage, '前往舞台');
         }
-      } else if (agent.state === 'comforting' || agent.state === 'socializing') {
+      } else if (agent.state === 'comforting' || agent.state === 'socializing' || agent.state === 'usingToilet' || agent.state === 'buyingFood') {
         agent.timer -= dt;
         if (agent.timer <= 0) this.returnFromNeed(agent);
       }

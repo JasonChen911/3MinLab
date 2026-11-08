@@ -72,7 +72,7 @@ export function step(previous:SimulationState,minutes=1):SimulationState {
     ] as const)if(eligible&&!active(kind)&&r.poisson(rate/60)>0)addIncident(s,kind,r);
     s.equipmentDown=active('equipment');s.weatherClosed=active('weather');s.supplyDown=active('supply');
     const checkers=Math.min(s.parameters.checkinStaff,Math.max(0,s.availableStaff-Math.max(2,s.tasks.filter(t=>t.status==='进行中').reduce((n,t)=>n+t.staff,0))));
-    const service=r.poisson(checkers*s.parameters.serviceRate*(s.supplyDown?.4:1)*(s.weatherClosed?.5:1)*directorServiceFactor(s));
+    const service=r.poisson(checkers*s.parameters.serviceRate*(s.supplyDown?.4:1)*(s.weatherClosed?.5:1)*directorServiceFactor(s)*(1-(s.staffFatigue??0)*.25));
     const occupancy=Math.max(0,s.served-s.departed);
     const admitted=Math.min(s.arrived-s.served,service,Math.max(0,s.parameters.capacity-occupancy));
     s.served+=admitted;s.queue=s.arrived-s.served;s.peakQueue=Math.max(s.peakQueue,s.queue);s.queuePersonMinutes+=s.queue;

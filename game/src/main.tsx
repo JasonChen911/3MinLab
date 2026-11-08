@@ -2113,6 +2113,7 @@ function App() {
             <span className={(state?.facilities?.toiletQueue ?? 0) >= 8 ? 'warn' : ''}>卫生间 <b>{state?.facilities?.toiletQueue ?? 0}</b></span>
             <span className={(state?.facilities?.vendorQueue ?? 0) >= 8 ? 'warn' : ''}>摊位 <b>{state?.facilities?.vendorQueue ?? 0}</b></span>
             <span>可轮休 <b>{state?.facilities?.restingStaff ?? 0}</b></span>
+            <span className={(state?.staffFatigue ?? 0) > .6 ? 'warn' : ''}>疲劳 <b>{Math.round((state?.staffFatigue ?? 0) * 100)}%</b></span>
             <span className={satisfaction < 45 ? 'warn' : ''}>满意 <b>{satisfaction}</b></span>
             <span className={alerts.length ? 'warn' : ''}>预警 <b>{alerts.length}</b></span>
             {challengeResult && <span className={challengeResult.failed ? 'warn' : ''}>目标 <b>{challengeResult.met}/{challengeResult.total}</b></span>}

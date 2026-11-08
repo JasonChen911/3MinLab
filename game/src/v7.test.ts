@@ -6,6 +6,8 @@ import {Random} from './engine/random';
 import {trackPoint} from './world/track';
 import {makeVenueItems} from './venues';
 import {updateBuildLedger} from './engine/buildMoney';
+import {PeopleSystem} from './world/people';
+import * as THREE from 'three';
 
 describe('V7 资金与设施状态', () => {
   it('同一来源只计费一次，存档恢复后仍保持唯一', () => {
@@ -67,6 +69,34 @@ describe('V7 资金与设施状态', () => {
     const relieved = intervene(next, 'reserve');
     expect(relieved.director?.events.find(event => event.id === 500)?.status).toBe('resolved');
     expect(step(relieved, 1).tasks[0].remaining).toBeLessThan(10);
+  });
+  it('可视人物按仿真队列前往卫生间和摊位', () => {
+    const layout = freshLayout('community');
+    layout.items.push({id:'queue-toilet',kind:'toilet',x:10,z:10,rotation:0});
+    layout.items.push({id:'queue-vendor',kind:'tent',x:-10,z:10,rotation:0});
+    const state = start(layout);
+    state.arrived = 24; state.served = 24;
+    state.facilities = {toiletQueue:20,vendorQueue:15,toiletServed:0,vendorServed:0,restingStaff:0,toiletCongested:true,vendorCongested:true};
+    const system = new PeopleSystem(new THREE.Scene());
+    system.setLayout(layout); system.setState(state); system.update(.1);
+    const visible = system.snapshot();
+    expect(visible.some(person => person.state === 'toToilet' || person.state === 'waitingToilet')).toBe(true);
+    expect(visible.some(person => person.state === 'toVendor' || person.state === 'waitingVendor')).toBe(true);
+  });
+  it('空闲人员可轮休，休息工位降低疲劳且不占用关键岗位', () => {
+    const base = start(freshLayout('conference'));
+    base.availableStaff = 12; base.assignedStaff = 6;
+    const noRest = structuredClone(base), withRest = structuredClone(base);
+    noRest.snapshot.facility!.restBays = 0;
+    withRest.snapshot.facility!.restBays = 6;
+    for (let minute = 1; minute <= 100; minute++) {
+      noRest.minute = minute; withRest.minute = minute;
+      advanceFacilities(noRest, new Random(minute));
+      advanceFacilities(withRest, new Random(minute));
+    }
+    expect(withRest.facilities?.restingStaff).toBe(6);
+    expect(withRest.staffFatigue).toBeLessThan(noRest.staffFatigue!);
+    expect(withRest.assignedStaff).toBe(6);
   });
 });
 

@@ -108,6 +108,7 @@ export interface SimulationState {
   satisfaction?: number; director?: DirectorState; replay?: ReplayState; challenge?: ChallengeResult;
   transactions?: MoneyTransaction[];
   facilities?: FacilityRuntime;
+  staffFatigue?: number;
 }
 export interface RunRecord { id: string; savedAt: string; state: SimulationState; }
 export const defaults: Parameters = {seed:20261105, attendance:.92,late:.15,absence:.05,arrivalSpread:35, serviceRate:1.2,durationCV:.18,equipmentRate:.16,weatherRate:.12,trafficRate:.12,supplyRate:.08,priceRate:.06,repairMean:18,staff:12,checkinStaff:3,capacity:200,spare:1,budget:10000,source:'系统演示假设',sourceNote:''};

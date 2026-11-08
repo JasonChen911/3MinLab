@@ -22,6 +22,8 @@ export function advanceFacilities(s: SimulationState, r: Random): FacilityRuntim
   runtime.toiletServed += toiletDone;
   runtime.vendorServed += vendorDone;
   runtime.restingStaff = Math.min(restBays, Math.max(0, s.availableStaff - s.assignedStaff));
+  const workload = s.assignedStaff / Math.max(1, s.availableStaff);
+  s.staffFatigue = Math.max(0, Math.min(1, (s.staffFatigue ?? 0) + workload * .006 - runtime.restingStaff / Math.max(1, s.availableStaff) * .014));
   for (const [key, queue, title, spot] of [
     ['toiletCongested', runtime.toiletQueue, '卫生间排队较长', 'rest'],
     ['vendorCongested', runtime.vendorQueue, '摊位排队较长', 'venue'],
