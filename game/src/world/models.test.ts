@@ -1,6 +1,7 @@
 import {describe, expect, it} from 'vitest';
 import * as THREE from 'three';
-import {animatePerson, createPerson} from './models';
+import {CATALOG} from '../game';
+import {animatePerson, createPerson, model} from './models';
 
 describe('人物步态', () => {
   it('行走时膝盖交替弯曲，停下后恢复自然站姿', () => {
@@ -30,6 +31,19 @@ describe('人物步态', () => {
       expect(bounds.min.y).toBeGreaterThan(-.09);
       expect(bounds.max.y).toBeGreaterThan(1.65);
       expect(bounds.max.y).toBeLessThan(1.9);
+    }
+  });
+});
+
+describe('活动家具占地与结构', () => {
+  it('桌椅和储物区模型不伸出标注的地面占地', () => {
+    for (const kind of ['chair', 'storage'] as const) {
+      const object = model({id: kind, kind, x: 0, z: 0, rotation: 0});
+      const bounds = new THREE.Box3().setFromObject(object);
+      expect(bounds.min.x).toBeGreaterThanOrEqual(-CATALOG[kind].w / 2 - .01);
+      expect(bounds.max.x).toBeLessThanOrEqual(CATALOG[kind].w / 2 + .01);
+      expect(bounds.min.z).toBeGreaterThanOrEqual(-CATALOG[kind].d / 2 - .01);
+      expect(bounds.max.z).toBeLessThanOrEqual(CATALOG[kind].d / 2 + .01);
     }
   });
 });

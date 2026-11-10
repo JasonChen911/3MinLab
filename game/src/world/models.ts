@@ -189,11 +189,19 @@ export function model(item: Item, ghost?: number): THREE.Group {
       break;
     }
     case 'chair': {
-      box(g, 1.5, .1, 1.1, WOOD, 0, .78);
-      for (const x of [-.58, .58]) for (const z of [-.4, .4]) box(g, .1, .76, .1, 0x7d674f, x, .38, z);
-      for (const [x, z] of [[-1.15, 0], [1.15, 0], [0, -1.05], [0, 1.05]]) {
-        box(g, .55, .42, .55, color, x, .22, z);
-        box(g, .55, .5, .08, color, x, .63, z + (z > 0 ? .26 : -.26));
+      const frame = 0x59636a;
+      box(g, 1.02, .07, .88, WOOD, 0, .73);
+      for (const x of [-.43, .43]) for (const z of [-.36, .36]) box(g, .055, .7, .055, frame, x, .35, z);
+      for (const z of [-.36, .36]) box(g, .9, .08, .05, 0x876b4c, 0, .62, z);
+      for (const x of [-.43, .43]) box(g, .05, .08, .73, 0x876b4c, x, .62);
+      for (const side of [-1, 1]) {
+        box(g, .31, .055, .37, color, side * .79, .46);
+        box(g, .055, .46, .055, frame, side * .79, .23, -.12);
+        box(g, .055, .46, .055, frame, side * .79, .23, .12);
+        box(g, .045, .4, .38, color, side * .965, .69);
+        box(g, .38, .055, .31, color, .0, .46, side * .78);
+        for (const x of [-.12, .12]) box(g, .055, .46, .055, frame, x, .23, side * .78);
+        box(g, .38, .4, .045, color, 0, .69, side * .965);
       }
       break;
     }
@@ -231,24 +239,28 @@ export function model(item: Item, ghost?: number): THREE.Group {
       break;
     }
     case 'checkin': case 'checkinSmall': case 'checkinLarge': {
-      box(g, w, 1, d, color);
-      box(g, w * .94, .14, d * .92, WHITE, 0, 1.07);
-      box(g, w * .82, .38, .05, 0xf7f0df, 0, 1.5, -d / 2 + .05);
-      for (let x = -w / 2 + .7; x < w / 2; x += 1.1) box(g, .32, .22, .06, 0x334b57, x, 1.7, -d / 2 + .05);
-      for (let x = -w / 2 + .65; x <= w / 2 - .6; x += 1.3) {
-        cylinder(g, .035, .035, 1.05, 0x9aa3aa, x, .53, d / 2 + .6, 6);
-        sphere(g, .07, 0xd8b44a, x, 1.06, d / 2 + .6);
+      const front = d / 2 - .2;
+      box(g, w * .9, .09, d * .62, WHITE, 0, .99);
+      for (const x of [-w * .39, w * .39]) for (const z of [-d * .24, d * .24]) box(g, .09, .94, .09, METAL, x, .47, z);
+      box(g, w * .84, .63, .07, color, 0, .6, front);
+      box(g, w * .82, .04, .08, 0xe3e8df, 0, .94, front);
+      for (const x of [-w * .31, w * .31]) {
+        box(g, .38, .035, .24, 0xf2efe5, x, 1.07, -.08);
+        box(g, .26, .025, .17, 0x405461, x, 1.1, -.08);
       }
-      const monitor = box(g, .55, .38, .06, 0x20272f, w * .25, 1.32, -d / 2 + .1);
-      monitor.rotation.x = -.16;
+      box(g, w * .65, .27, .06, 0xf7f0df, 0, 1.48, -d * .27);
+      for (const x of [-w * .32, w * .32]) box(g, .045, .42, .045, METAL, x, 1.27, -d * .27);
       break;
     }
     case 'service': {
-      box(g, w, 1, d, color);
-      box(g, w * .84, .16, .6, 0xe9f4e0, 0, 1.08, 0);
-      box(g, .9, .62, .1, 0x4f8b6b, 0, 1.5, -d / 2 + .06);
-      box(g, .55, .35, .06, 0xdff0d7, 0, 1.5, -d / 2 + .11);
-      for (const x of [-w / 2 + .2, w / 2 - .2]) box(g, .1, 1.1, .1, METAL, x, .55, 0);
+      box(g, w * .88, .09, d * .6, WOOD, 0, 1.02);
+      for (const x of [-w * .38, w * .38]) for (const z of [-d * .24, d * .24]) box(g, .09, .97, .09, METAL, x, .49, z);
+      box(g, w * .79, .65, .07, color, 0, .63, d * .26);
+      box(g, w * .7, .04, .12, 0xe9f4e0, 0, 1.08, d * .25);
+      box(g, .48, .035, .35, 0xf5f4ec, -.45, 1.09, -.1);
+      box(g, .34, .035, .24, 0x87a98d, .42, 1.09, -.1);
+      box(g, .95, .36, .07, 0x4f8b6b, 0, 1.55, -d * .23);
+      for (const x of [-.45, .45]) box(g, .045, .5, .045, METAL, x, 1.29, -d * .23);
       break;
     }
     case 'rest': {
@@ -307,10 +319,14 @@ export function model(item: Item, ghost?: number): THREE.Group {
       break;
     }
     case 'storage': {
-      box(g, w, 1.8, d, color);
-      box(g, w + .2, .12, d + .2, 0x8f7b64, 0, 1.82);
-      for (const x of [-w * .22, w * .22]) box(g, x > 0 ? w * .34 : w * .34, 1.25, .06, 0x9a846d, x, .7, d / 2 + .04);
-      for (const x of [-.9, .9]) box(g, .8, .7, .8, 0x8e785c, x, .55, d / 2 + .5);
+      box(g, w * .92, .12, d * .9, 0x7d8079, 0, .06);
+      for (const x of [-w * .42, w * .42]) for (const z of [-d * .4, d * .4]) box(g, .09, 2.0, .09, METAL, x, 1, z);
+      for (const y of [.42, 1.04, 1.66]) box(g, w * .88, .065, d * .82, 0x9a846d, 0, y);
+      for (const [x, z, y] of [[-.65,-.55,.65],[.55,-.45,.65],[-.25,.48,1.27],[.62,.45,1.27],[-.58,-.3,1.88]]) {
+        box(g, .58, .36, .48, color, x, y, z);
+        box(g, .6, .035, .5, 0xb69a73, x, y + .2, z);
+        box(g, .025, .35, .5, 0x806b51, x, y, z);
+      }
       break;
     }
     case 'roadCurve': {
