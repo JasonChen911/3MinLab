@@ -176,7 +176,9 @@ export default function App() {
       setProjectId(uid());setBrief(nextBrief);setPlan(null);setAsked([]);setAiQuestions([]);setStage('intake');setActiveModule('basic');navigateTo('workspace');announce('活动类型仍不明确，请先选择类型或确认使用通用框架');return;
     }
     const next={...generatePlan(nextBrief),id:uid()};
-    setProjectId(next.id);setBrief(nextBrief);setPlan(next);setAsked([]);setAiQuestions([]);setStage('plan');setActiveModule('basic');persist(next,true);navigateTo('workspace');announce('AI 初稿已进入策划工作台；建议和未确定信息仍可修改');
+    setProjectId(next.id);setBrief(nextBrief);setPlan(next);setAsked([]);setAiQuestions([]);setStage('plan');setActiveModule('basic');persist(next,true);
+    if(draft.questions.length)setAssistantRequest({id:uid(),text:draft.questions[0]});
+    navigateTo('workspace');announce('AI 初稿已进入策划工作台；建议和未确定信息仍可修改');
   }
 
   /** 从预设模板起稿：进入需求确认，字段已按预设填好且可改 */
@@ -418,6 +420,27 @@ export default function App() {
     announce('旧方案记录已清除，活动项目与附件保留');
   }
 
+  function applyStageAI(moduleId:ModuleId,text:string,items:string[],conversation:{question:string;answer:string}[]){
+    if(!plan)return;
+    const original=plan.brief.aiDraft??{flow:[],staff:[],materials:[],features:[],questions:[]};
+    const nextBrief={...plan.brief,aiDraft:{...original,stageAnswers:{...original.stageAnswers,[moduleId]:conversation}}};
+    const priorBudget=plan.modules.find(module=>module.id==='budget');
+    const baselineBudget=generatePlan(plan.brief).modules.find(module=>module.id==='budget');
+    const freshBudget=generatePlan(nextBrief).modules.find(module=>module.id==='budget');
+    const budgetUntouched=JSON.stringify(priorBudget?.blocks)===JSON.stringify(baselineBudget?.blocks);
+    const modules=plan.modules.map(module=>{
+      let updated=module;
+      if(module.id==='budget'&&freshBudget){
+        updated=budgetUntouched?{...module,blocks:freshBudget.blocks,summary:freshBudget.summary}:module;
+        if(!budgetUntouched)updated={...updated,aiNote:'已有资源条件可能影响预算；人工修改过的预算金额已保留，请逐项核对。'};
+      }
+      if(module.id===moduleId)updated={...updated,aiNote:text,blocks:[...updated.blocks.filter(block=>!(block.kind==='bullets'&&block.title==='AI 建议（组织者已确认）')),{kind:'bullets' as const,title:'AI 建议（组织者已确认）',items}]};
+      return updated;
+    });
+    const next=setModuleStatus({...plan,brief:nextBrief,modules},moduleId,'confirmed');
+    setPlan(next);setBrief(nextBrief);persist(next,true);
+  }
+
   return <div className="shell">
     <header className="topbar">
       <a className="brand" href="#home" onClick={() => navigateTo('home')}>
@@ -453,8 +476,6 @@ export default function App() {
           <div className="idea-examples" aria-label="示例活动">
             {EXAMPLES.map((example) => <button key={example} type="button" onClick={() => {setIdea(example);ideaRef.current?.focus();}}>{example}</button>)}
           </div>
-          <a className="hero-preset-link" href="#presets">没有头绪？浏览活动模板 ↓</a>
-          <button className="game-home-entry" type="button" onClick={()=>void openGame()}><strong>3D 活动模拟游戏</strong><span>搭建场地、配置人员，观察活动如何运行</span><b>进入 3D 世界 →</b></button>
           {saved.data.recent && <button className="resume-card" type="button" onClick={resumeLast}>
             <span className="mini-label">上次的方案</span>
             <strong>{saved.data.recent.title}</strong>
@@ -466,8 +487,9 @@ export default function App() {
             <span><strong>{CATEGORIES.length}</strong> 类活动</span>
             <span><strong>{PRESETS.length}</strong> 个预设模板</span>
           </div>
+          <a className="hero-preset-link" href="#presets">没有头绪？浏览活动模板 ↓</a>
         </div>
-        <div className="hero-art" aria-hidden="true"><div className="orbit orbit-one"/><div className="orbit orbit-two"/><div className="art-core">PLAN<br/>IT<br/>WELL<span>✳</span></div><span className="floating f1">✦ 灵感</span><span className="floating f2">⏱ 计划</span><span className="floating f3">↗ 执行</span></div>
+        <div className="hero-side"><div className="hero-art" aria-hidden="true"><div className="orbit orbit-one"/><div className="orbit orbit-two"/><div className="art-core">PLAN<br/>IT<br/>WELL<span>✳</span></div><span className="floating f1">✦ 灵感</span><span className="floating f2">⏱ 计划</span><span className="floating f3">↗ 执行</span></div><button className="game-home-entry" type="button" onClick={()=>void openGame()}><strong>3D 活动模拟游戏</strong><span>搭建场地、配置人员，观察活动如何运行</span><b>进入 3D 世界 →</b></button></div>
       </section>}
 
       {screen === 'home' && <PresetGallery
@@ -511,7 +533,7 @@ export default function App() {
           />
         </div>}
 
-        {stage === 'plan' && plan && <WorkspaceHub key={plan.id} plan={plan} apiKey={apiKey} assistantRequest={assistantRequest} onRestoreProject={openProject} onPlanChange={next=>{setPlan(next);setBrief(next.brief);persist(next,true);}} onStageStatus={changeModuleStatus} onSelectModule={setActiveModule} onCheckpoint={()=>projectRepository.update(plan.id,current=>({...current!,versions:[...current!.versions,{id:uid(),createdAt:new Date().toISOString(),reason:'重新编辑策划阶段',source:'user' as const,before:{plan:current!.plan,draft:current!.draft,workspace:current!.workspace},afterSummary:['保留阶段修改前版本'],afterFingerprint:JSON.stringify([current!.plan,current!.workspace]),documentChanges:[]}].slice(-20)}))} onStageAiConfirm={(moduleId,text,items)=>{const next=setModuleStatus({...plan,modules:plan.modules.map(module=>module.id===moduleId?{...module,aiNote:text,blocks:[...module.blocks,{kind:'bullets' as const,title:'AI 建议（组织者已确认）',items}]}:module)},moduleId,'confirmed');setPlan(next);persist(next,true);}}><PlanView
+        {stage === 'plan' && plan && <WorkspaceHub key={plan.id} plan={plan} apiKey={apiKey} assistantRequest={assistantRequest} onRestoreProject={openProject} onPlanChange={next=>{setPlan(next);setBrief(next.brief);persist(next,true);}} onStageStatus={changeModuleStatus} onSelectModule={setActiveModule} onCheckpoint={()=>projectRepository.update(plan.id,current=>({...current!,versions:[...current!.versions,{id:uid(),createdAt:new Date().toISOString(),reason:'重新编辑策划阶段',source:'user' as const,before:{plan:current!.plan,draft:current!.draft,workspace:current!.workspace},afterSummary:['保留阶段修改前版本'],afterFingerprint:JSON.stringify([current!.plan,current!.workspace]),documentChanges:[]}].slice(-20)}))} onStageAiConfirm={applyStageAI}><PlanView
           plan={plan}
           active={activeModule}
           onActive={setActiveModule}

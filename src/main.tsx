@@ -11,3 +11,4 @@ import './refinements.css';
 import './visual-system.css';
 
 import './settings/settings.css';
+import './guided-ui.css';

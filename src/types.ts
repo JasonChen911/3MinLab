@@ -108,7 +108,7 @@ export interface EventBrief {
   /** 可切换的策划展示模式，缺省沿用完整模式以兼容旧项目 */
   planningMode?: PlanningMode;
   fieldStates?: Partial<Record<BriefFieldKey, PlanningModuleState>>;
-  aiDraft?: { flow: string[]; staff: string[]; materials: string[]; features: string[]; questions: string[] };
+  aiDraft?: { flow: string[]; staff: string[]; materials: string[]; features: string[]; questions: string[]; conversation?: {question:string;answer:string}[]; stageAnswers?:Record<string,{question:string;answer:string}[]> };
   title: string;
   categoryId: string;
   family: FamilyId;

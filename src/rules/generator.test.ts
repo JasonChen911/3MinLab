@@ -45,6 +45,26 @@ describe('通用引擎：结构与权重', () => {
 });
 
 describe('通用引擎：预算与时间', () => {
+  it('学校已提供场地与设备时，不再把对应租赁费用计入预计支出', () => {
+    const brief=createBrief('学校田径运动会，1000 人，预算 3 万；操场和计时设备由学校免费提供', {now:NOW});
+    const block=budgetBlock(generatePlan(brief));
+    expect(block.rows.filter(row=>['场地','设备'].includes(row.bucket)).every(row=>row.amount===0)).toBe(true);
+    expect(block.total).toBeLessThan(brief.budget);
+    expect(block.rows.reduce((sum,row)=>sum+row.amount,0)).toBe(block.total);
+    expect(block.note).toContain('预算上限');
+  });
+  it('AI 问答中确认已有场地时，也不重复估算场地费', () => {
+    const brief=createBrief('校园讲座，100 人，预算 5000 元', {now:NOW});
+    const withAnswer={...brief,aiDraft:{flow:[],staff:[],materials:[],features:[],questions:[],conversation:[{question:'场地如何安排？',answer:'学校礼堂已经免费提供，不需要支付场地费'}]}};
+    const block=budgetBlock(generatePlan(withAnswer));
+    expect(block.rows.filter(row=>row.bucket==='场地').every(row=>row.amount===0)).toBe(true);
+  });
+  it('策划阶段的 AI 问答确认已有设备时，更新设备预算', () => {
+    const brief=createBrief('校园讲座，100 人，预算 5000 元', {now:NOW});
+    const updated={...brief,aiDraft:{flow:[],staff:[],materials:[],features:[],questions:[],stageAnswers:{resources:[{question:'设备如何安排？',answer:'投影和音响由学校免费提供'}]}}};
+    const block=budgetBlock(generatePlan(updated));
+    expect(block.rows.filter(row=>row.bucket==='设备').every(row=>row.amount===0)).toBe(true);
+  });
   it('预算分项之和等于总预算', () => {
     const block = budgetBlock(marathon);
     const sum = block.rows.reduce((total, row) => total + row.amount, 0);

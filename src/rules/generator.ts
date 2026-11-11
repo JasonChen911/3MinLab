@@ -13,7 +13,8 @@ import {
   venueLabel,
 } from '../data/taxonomy';
 import { suggestInteractions } from './activityIdeas';
-import { allocateBudget, formatMoney, perCapita } from './budget';
+import { allocateBudget, budgetPercentages, formatMoney, perCapita } from './budget';
+import {existingResources} from './existingResources';
 import { formatDateLabel, formatDurationLabel } from './intake';
 import type {
   Block,
@@ -336,6 +337,7 @@ interface BuildContext {
 
 function buildBasic(ctx: BuildContext): Block[] {
   const { brief, category, staffTotal, guests } = ctx;
+  const venueText=brief.venueNote||`${venueLabel(brief.venue)}（${existingResources(brief).has('venue')?'组织者表示可用，具体位置待核对':'具体场地待定'}）`;
   const rows = [
     ['活动名称', ctx.title],
     ['活动主题', ctx.slogan],
@@ -343,7 +345,7 @@ function buildBasic(ctx: BuildContext): Block[] {
     ['活动类型', `${getFamily(category.family).label} · ${category.label}`],
     ['举办时间', brief.date ? formatDateLabel(brief.date) : '待定'],
     ['活动时长', formatDurationLabel(brief.durationMinutes, brief.days)],
-    ['活动地点', `${venueLabel(brief.venue)}（具体场地待定）`],
+    ['活动地点', venueText],
     ['参与规模', `${brief.people} 人（另需工作人员 ${staffTotal} 人${guests > 0 ? `、嘉宾 ${guests} 人` : ''}）`],
     ['预算规模', `${formatMoney(brief.budget)}（人均 ${formatMoney(perCapita(brief.budget, brief.people))}）`],
     ['策划重点', category.summary],
@@ -434,7 +436,7 @@ function buildLogistics(ctx: BuildContext): Block[] {
   const items = [
     `日期：${brief.date ? formatDateLabel(brief.date) : '待定'}（${brief.days > 1 ? `${brief.days} 天` : '单日'}）`,
     `时间窗口：${clock(ctx.startMinute)}–${clock(endMinute)}，含 ${formatDurationLabel(brief.durationMinutes, 1)} 活动时间`,
-    `场地类型：${venueLabel(brief.venue)}${context.outdoor ? '（户外，必须准备天气备用方案）' : ''}`,
+    `场地类型：${venueLabel(brief.venue)}${brief.venueNote?`，具体地点：${brief.venueNote}`:existingResources(brief).has('venue')?'，组织者表示已有场地（具体位置待核对）':''}${context.outdoor ? '（户外，必须准备天气备用方案）' : ''}`,
     `预计人流：参与者 ${brief.people} 人 + 工作人员 ${ctx.staffTotal} 人${ctx.guests > 0 ? ` + 嘉宾 ${ctx.guests} 人` : ''}`,
   ];
 
@@ -592,15 +594,19 @@ function buildResources(ctx: BuildContext): Block[] {
 function buildBudget(ctx: BuildContext): Block[] {
   const { brief } = ctx;
   const lines = allocateBudget(ctx.knowledge.budget, brief.budget);
+  const provided=existingResources(brief);
   const rows: BudgetRow[] = lines.map((line, index) => ({
     id: `budget-${index + 1}`,
     bucket: bucketOf(line.category, line.item),
     category: line.category,
     item: line.item,
-    amount: line.amount,
+    amount: (bucketOf(line.category,line.item)==='场地'&&provided.has('venue')||bucketOf(line.category,line.item)==='设备'&&provided.has('equipment')||bucketOf(line.category,line.item)==='人员'&&provided.has('staff'))?0:line.amount,
     share: line.share,
-    note: line.note,
+    note: ((bucketOf(line.category,line.item)==='场地'&&provided.has('venue')||bucketOf(line.category,line.item)==='设备'&&provided.has('equipment')||bucketOf(line.category,line.item)==='人员'&&provided.has('staff'))?'组织者表示已提供或可免费使用；暂不计现金支出，执行前核实。':line.note),
   }));
+  const shares=budgetPercentages(rows.map(row=>row.amount));
+  rows.forEach((row,index)=>{row.share=shares[index]/100;});
+  const estimatedSpend=rows.reduce((sum,row)=>sum+row.amount,0);
   const ordered = [...rows].sort((a, b) => BUDGET_BUCKETS.indexOf(a.bucket as typeof BUDGET_BUCKETS[number]) - BUDGET_BUCKETS.indexOf(b.bucket as typeof BUDGET_BUCKETS[number]));
 
   if (brief.budget === 0) {
@@ -628,7 +634,7 @@ function buildBudget(ctx: BuildContext): Block[] {
     .map((item) => `${item.bucket} ${formatMoney(item.amount)}`);
 
   const control = [
-    `人均成本 ${formatMoney(perCapita(brief.budget, brief.people))}，高于同类活动时优先压缩场地与礼品。`,
+    `预计现金支出人均 ${formatMoney(perCapita(estimatedSpend, brief.people))}；预算上限为 ${formatMoney(brief.budget)}。`,
     '至少保留 10% 应急备用金，不提前分配；所有变更走书面确认。',
     '大额支出（单笔 > 20%）先比价三家，合同锁定单价与超时费用。',
     '物资按实际到场人数的 80–90% 备货，缺口用共享与补货解决。',
@@ -639,8 +645,8 @@ function buildBudget(ctx: BuildContext): Block[] {
       kind: 'budget',
       title: '预算清单（按标准类别）',
       rows: ordered,
-      total: brief.budget,
-      note: '所有金额均为估算值，不是供应商报价；执行前须以实际询价替换，并保留比价记录。',
+      total: estimatedSpend,
+      note: `预算上限 ${formatMoney(brief.budget)}，预计现金支出 ${formatMoney(estimatedSpend)}；已提供资源暂按零新增费用，须核实。其余金额为估算值，不是供应商报价。`,
     },
     { kind: 'bullets', title: '分类小计', items: subtotals },
     { kind: 'bullets', title: '成本控制', items: control },
@@ -952,6 +958,7 @@ function withPreset(base: FamilyKnowledge, preset?: ScenarioPreset): FamilyKnowl
 
 export function generatePlan(brief: EventBrief): EventPlan {
   const category = getCategory(brief.categoryId);
+  const provided = existingResources(brief);
   const weights = resolveWeights(category);
   const preset = getPreset(brief.presetId);
   const baseKnowledge = withPreset(knowledgeFor(category.family, category.id), preset);
@@ -1025,7 +1032,7 @@ export function generatePlan(brief: EventBrief): EventPlan {
     program: `${knowledge.agenda.length} 个环节，${formatDurationLabel(brief.durationMinutes, 1)}`,
     organization: `${staff.length} 个岗位，共 ${staffTotal} 人`,
     resources: `${knowledge.resources.length} 类物资，按 ${brief.people} 人估算用量`,
-    budget: `${formatMoney(brief.budget)}，${knowledge.budget.length} 个科目，人均 ${formatMoney(perCapita(brief.budget, brief.people))}`,
+    budget: provided.size?`预算上限 ${formatMoney(brief.budget)}；${[...provided].map(item=>({venue:'场地',equipment:'设备',staff:'人员'}[item])).join('、')}已提供，预计支出见预算表`:`${formatMoney(brief.budget)}，${knowledge.budget.length} 个科目，人均 ${formatMoney(perCapita(brief.budget, brief.people))}`,
     promotion: `${knowledge.channels.length} 个渠道，T-21 至活动当天`,
     execution: '六阶段执行时间轴：筹备 → 宣传 → 检查 → 执行 → 收尾 → 总结',
     risk: `${knowledge.risks.length} 项风险，最高等级 ${Math.max(...knowledge.risks.map((r) => r.likelihood * r.impact)) >= 6 ? '高' : '中'}`,
