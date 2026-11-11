@@ -420,24 +420,30 @@ export default function App() {
     announce('旧方案记录已清除，活动项目与附件保留');
   }
 
-  function applyStageAI(moduleId:ModuleId,text:string,items:string[],conversation:{question:string;answer:string}[]){
+  function applyStageAI(moduleId:ModuleId,text:string,items:string[],conversation:{question:string;answer:string}[],fields:Partial<Record<'title'|'people'|'budget'|'duration'|'date'|'venue'|'venueNote'|'goal'|'audience'|'constraints',string|number>>){
     if(!plan)return;
     const original=plan.brief.aiDraft??{flow:[],staff:[],materials:[],features:[],questions:[]};
-    const nextBrief={...plan.brief,aiDraft:{...original,stageAnswers:{...original.stageAnswers,[moduleId]:conversation}}};
-    const priorBudget=plan.modules.find(module=>module.id==='budget');
-    const baselineBudget=generatePlan(plan.brief).modules.find(module=>module.id==='budget');
-    const freshBudget=generatePlan(nextBrief).modules.find(module=>module.id==='budget');
-    const budgetUntouched=JSON.stringify(priorBudget?.blocks)===JSON.stringify(baselineBudget?.blocks);
+    let nextBrief:EventBrief={...plan.brief,aiDraft:{...original,stageAnswers:{...original.stageAnswers,[moduleId]:conversation}}};
+    for(const [key,value] of Object.entries(fields)){
+      const input=String(value).trim();if(!input)continue;
+      if(['people','budget','duration'].includes(key)&&(!Number.isFinite(Number(input))||Number(input)<(key==='budget'?0:1)))throw Error('请核对 AI 草稿中的人数、预算或时长');
+      if(key==='date'&&!/^\d{4}-\d{2}-\d{2}$/.test(input))throw Error('请使用 YYYY-MM-DD 格式填写活动日期');
+      if(key==='venueNote')nextBrief={...nextBrief,venueNote:input.slice(0,120)};
+      else nextBrief=updateField(nextBrief,key as BriefFieldKey,input);
+    }
+    nextBrief=refreshBrief(nextBrief);
+    const baseline=generatePlan(plan.brief),fresh=generatePlan(nextBrief);
     const modules=plan.modules.map(module=>{
-      let updated=module;
-      if(module.id==='budget'&&freshBudget){
-        updated=budgetUntouched?{...module,blocks:freshBudget.blocks,summary:freshBudget.summary}:module;
-        if(!budgetUntouched)updated={...updated,aiNote:'已有资源条件可能影响预算；人工修改过的预算金额已保留，请逐项核对。'};
-      }
-      if(module.id===moduleId)updated={...updated,aiNote:text,blocks:[...updated.blocks.filter(block=>!(block.kind==='bullets'&&block.title==='AI 建议（组织者已确认）')),{kind:'bullets' as const,title:'AI 建议（组织者已确认）',items}]};
+      const before=baseline.modules.find(item=>item.id===module.id),after=fresh.modules.find(item=>item.id===module.id);
+      const aiBlocks=module.blocks.filter(block=>block.kind==='bullets'&&block.title==='AI 建议（组织者已确认）');
+      const authoredBlocks=module.blocks.filter(block=>!(block.kind==='bullets'&&block.title==='AI 建议（组织者已确认）'));
+      const untouched=JSON.stringify(authoredBlocks)===JSON.stringify(before?.blocks);
+      let updated=untouched&&after?{...module,blocks:[...after.blocks,...aiBlocks],summary:after.summary}:module;
+      if(!untouched&&JSON.stringify(before?.blocks)!==JSON.stringify(after?.blocks))updated={...updated,aiNote:'基础信息已变化；本阶段含手工内容，原内容已保留，请核对。'};
+      if(module.id===moduleId)updated={...updated,aiNote:text,blocks:[...updated.blocks.filter(block=>!(block.kind==='bullets'&&block.title==='AI 建议（组织者已确认）')),...(items.length?[{kind:'bullets' as const,title:'AI 建议（组织者已确认）',items}]:[])]};
       return updated;
     });
-    const next=setModuleStatus({...plan,brief:nextBrief,modules},moduleId,'confirmed');
+    const next=setModuleStatus({...plan,brief:nextBrief,modules,title:fresh.title,oneLiner:fresh.oneLiner,scale:fresh.scale,assumptions:fresh.assumptions},moduleId,'confirmed');
     setPlan(next);setBrief(nextBrief);persist(next,true);
   }
 
