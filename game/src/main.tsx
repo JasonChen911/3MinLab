@@ -4,7 +4,7 @@ import Scene3D, {type CameraAction, type Quality, type Tool} from './Scene3D';
 import type {DebugStats} from './world/debug';
 import {
   CATALOG, ROLE_LABELS, alignItems, applyDifficulty, batchMove, batchRotate, bounds, capacityOf, cost, evaluate, freshLayout, importBackup, operatingIssues, itemCost, placement, facilityParameters, facilityPriceStatus, layoutCost, simulationItemCost, simulationStaffCost, simulationVenueCost, defaultSimulationFinance,
-  reconcile, roleCounts, start, step, intervene,
+  reconcile, roleCounts, rotateItem, start, step, intervene,
   type BatchResult, type Facility, type FacilityParameters, type Intervention, type Item, type Kind, type Layout, type PersonSave, type SimulationState, type WeatherKind,
 } from './game';
 import {PERSON_STATE_LABELS, type PersonInfo} from './world/people';
@@ -60,7 +60,7 @@ const toolCategories: Record<'build' | 'road' | 'decor', string[]> = {
   decor: ['绿植', '装饰'],
 };
 const tools: {id: Tool; label: string; icon: string; key: string; hint: string}[] = [
-  {id: 'select', label: '选择', icon: '↖', key: 'V', hint: '左键选择/拖动设施，拖动空地平移；Shift 拖框多选'},
+  {id: 'select', label: '选择', icon: '↖', key: 'V', hint: '左键拖动设施移动，右键拖动设施原地旋转；Shift 拖框多选'},
   {id: 'observe', label: '观察', icon: '◎', key: 'O', hint: '仅观察场景：不选中、不移动设施'},
   {id: 'build', label: '建造', icon: '▦', key: 'B', hint: '舞台、观众、设备与管理设施'},
   {id: 'road', label: '道路', icon: '═', key: 'N', hint: '主干道与人行小路'},
@@ -941,6 +941,10 @@ function App() {
     if (mode !== 'build') { setMessage('请先暂停模拟并切回建造模式。'); return; }
     applyBatch(batchRotate(layout, ids, steps, budgetMode));
   };
+  const rotateDirectly = (itemId: string, angle: number) => {
+    if (mode !== 'build') { setMessage('请先暂停模拟并切回建造模式。'); return false; }
+    return applyBatch(rotateItem(layout, itemId, angle, budgetMode));
+  };
   const alignMany = (ids: string[], axis: 'x' | 'z') => {
     if (mode !== 'build') { setMessage('请先暂停模拟并切回建造模式。'); return; }
     applyBatch(alignItems(layout, ids, axis, budgetMode));
@@ -1599,6 +1603,7 @@ function App() {
           onMove={(itemId, x, z) => change(itemId, {x, z})}
           onBatchMove={moveMany}
           onBatchRotate={rotateMany}
+          onRotate={rotateDirectly}
           onDelete={remove}
           onDeleteMany={removeMany}
           onPreview={setPreview}
@@ -1615,13 +1620,13 @@ function App() {
       <header className="v3-hud">
         <div className="v3-brand">
           <span className="v3-logo">3M</span>
-          <div><b>开放世界活动模拟器</b><span>3MinLab · Event World V8</span></div>
+          <div><b>开放世界活动模拟器</b><span>3MinLab · Event World V9</span></div>
         </div>
         <div className="v3-activity">
           <b>{layout.activity.title}</b>
           <span>{sceneNames[layout.activity.scene] ?? layout.activity.scene} · {venue.name} · {variantInfo.label} · {indoor ? '室内' : '室外'} {layout.size}×{layout.size}m</span>
         </div>
-        <div className="v8-mode-switch" aria-label="运行模式"><button className={!realMode?'active':''} onClick={()=>switchOperatingMode('game')}>🎮 游戏模式</button><button className={realMode?'active':''} onClick={()=>switchOperatingMode('simulation')}>📊 现实仿真</button></div>
+        <div className="v8-mode-switch" aria-label="运行模式"><button className={!realMode?'active':''} onClick={()=>switchOperatingMode('game')}>游戏模式</button><button className={realMode?'active':''} onClick={()=>switchOperatingMode('simulation')}>现实仿真</button></div>
         <div className="v3-metrics">
           <span className="v3-money">{realMode?'现实成本':budgetMode === 'unlimited' ? '游戏金币 ∞' : '游戏金币'} <b>{realMode?money(used):`${(budgetMode === 'unlimited' ? used : left).toLocaleString()} 币`}</b></span>
           <span>{realMode?realFinance.budgetMode==='off'?'不启用预算':realFinance.budgetMode==='unlimited'?'预算仅参考':'限定预算':'预算'} <b>{realMode&&realFinance.budgetMode==='off'?'—':activeBudget.toLocaleString()}</b></span>
@@ -1812,7 +1817,7 @@ function App() {
             <label>Z 坐标<input type="number" value={chosen.z} disabled={!editable || chosenLocked} onChange={e => { const n = Number(e.target.value); if (Number.isFinite(n)) change(chosen.id, {z: n}); }}/></label>
             <label>占地<input value={`${sizeText(bounds(chosen).w)} × ${sizeText(bounds(chosen).d)}`} disabled/></label>
             <label>容量<input value={capacityOf(chosen,realMode) || '—'} disabled/></label>
-            <label>旋转<select value={chosen.rotation} disabled={!editable || chosenLocked} onChange={e => change(chosen.id, {rotation: Number(e.target.value)})}>{[0, 90, 180, 270].map(n => <option key={n} value={n}>{n}°</option>)}</select></label>
+            <label>旋转<select value={chosen.rotation} disabled={!editable || chosenLocked} onChange={e => change(chosen.id, {rotation: Number(e.target.value)})}>{![0, 90, 180, 270].includes(chosen.rotation) && <option value={chosen.rotation}>{chosen.rotation}° · 手动角度</option>}{[0, 90, 180, 270].map(n => <option key={n} value={n}>{n}°</option>)}</select></label>
             <label>高度<input type="range" min=".6" max="2.2" step=".1" value={chosen.height ?? 1} disabled={!editable || chosenLocked} onChange={e => change(chosen.id, {height: Number(e.target.value)})}/></label>
             <label className="wide">尺寸 <span>{(chosen.scale ?? 1).toFixed(1)}×</span><input type="range" min=".5" max="2" step=".1" value={chosen.scale ?? 1} disabled={!editable || chosenLocked} onChange={e => change(chosen.id, {scale: Number(e.target.value)})}/></label>
           </div>
@@ -1841,7 +1846,7 @@ function App() {
             {physicsFor(chosen.kind).anchorable && <button disabled={!editable || chosenLocked} onClick={() => change(chosen.id, {anchored: !chosen.anchored})}>{chosen.anchored ? '解除固定' : '固定帐篷'}</button>}
             <button className="danger" disabled={!editable || chosenLocked} onClick={() => remove(chosen.id)}>删除</button>
           </div>
-          <p className="v3-hint">快捷键 R 旋转 · Delete 删除 · 双击设施打开此面板。</p>
+          <p className="v3-hint">右键拖动物体原地旋转；右键单击或按 R 旋转 90°。Delete 删除，双击打开属性。</p>
         </div> : <div className="v3-panel-body">
           <div className="v3-venue-info">
             <h4>场地信息</h4>
@@ -1896,7 +1901,7 @@ function App() {
           </div>}
           <div className="v3-tips">
             <b>操作提示</b>
-            <span>左键选择 / 拖动设施 · 拖动空地平移 · Shift 拖框多选</span>
+            <span>左键拖动设施移动 · 右键拖动设施原地旋转 · Shift 拖框多选</span>
             <span>中键拖动平移 · Space + 左键平移</span>
             <span>滚轮朝光标缩放 · WASD 移动 · F 回到场地</span>
             <span>双击设施打开属性编辑 · 双击场地空白处取消</span>
@@ -2408,7 +2413,7 @@ function App() {
           <label>平移速度 <span className="v3-value">{settings.panSensitivity.toFixed(1)}×</span><input type="range" min="0.4" max="2" step="0.1" value={settings.panSensitivity} onChange={e => patchSettings({panSensitivity: Number(e.target.value)})}/></label>
           <label>缩放速度 <span className="v3-value">{settings.zoomSensitivity.toFixed(1)}×</span><input type="range" min="0.4" max="2" step="0.1" value={settings.zoomSensitivity} onChange={e => patchSettings({zoomSensitivity: Number(e.target.value)})}/></label>
           <label className="v3-check"><input type="checkbox" checked={settings.invertRotation} onChange={e => patchSettings({invertRotation:e.target.checked})}/>反向水平旋转</label>
-          <p className="v3-hint">左键拖动空地平移，右键拖动水平旋转，中键拖动平移，滚轮缩放；镜头俯仰受限。Shift + 左键拖框多选。</p>
+          <p className="v3-hint">右键拖动设施原地旋转，右键拖动空地转动镜头；左键拖动空地或中键拖动平移，滚轮缩放。Shift + 左键拖框多选。</p>
           <label className="v3-check"><input type="checkbox" checked={settings.snap} onChange={e => patchSettings({snap: e.target.checked})}/>网格吸附（关闭后自由放置）</label>
           <label className="v3-check"><input type="checkbox" checked={settings.shadows} onChange={e => patchSettings({shadows: e.target.checked})}/>日光阴影</label>
           <label className="v3-check"><input type="checkbox" checked={settings.sound} onChange={e => patchSettings({sound: e.target.checked})}/>现场提示音</label>
@@ -2555,18 +2560,15 @@ function App() {
 
     {showGuide && <div className="v3-guide">
       <div className="v3-guide-card">
-        <small>3MINLAB · EVENT WORLD V4</small>
-        <h2>在真实尺度场地里搭建与演练</h2>
+        <small>3MINLAB · EVENT WORLD V9</small>
+        <h2>三步搭建你的活动场地</h2>
         <ol>
-          <li><b>镜头</b>：右键拖动 360° 水平旋转，中键或 Space + 左键平移，滚轮朝光标缩放；俯仰角受限，不会翻转或翻滚。左键选择、拖动设施，双击编辑属性，F 恢复场地视角。</li>
-          <li><b>场地</b>：设置中可选体育场、剧院、餐厅、草坪、多功能会议厅、户外音乐节六类场地，每类有 S/M/L 三种真实尺寸与容量；室内场地支持墙体自动隐藏、半透明和隐藏模式。</li>
-          <li><b>建造与碰撞</b>：所有设施都有独立碰撞体，放置预览以绿/黄/红显示可行性与原因；人物使用胶囊避让与 A* 寻路，施工人员和观众会绕开障碍，工作人员还能推动桌椅。</li>
-          <li><b>角色</b>：观众、参与者、演员、主持、裁判、工作人员、志愿者、安保、医疗与服务人员按活动类型进入不同状态机：签到、找座、就座、后台、上台、巡逻、服务、退场。选中人物可查看角色、任务、目标、状态与剩余路径。</li>
-          <li><b>天气与预算</b>：晴天/阴天/小雨/大雨/微风/大风影响帐篷稳定、设备、速度与舒适度；可手动设定或开启带预警的自动天气。默认无限资金只记录与提醒，预算挑战模式会真正阻止超支放置，结算时给出预算对比。</li>
-          <li><b>模拟</b>：开始后参与者从入口经签到、活动区移动，车辆沿道路行驶，突发事件按概率影响设施；所有原有模板、评分、保存与经验系统继续可用。</li>
+          <li><b>选场地</b>：在「设置」中选体育场、剧院或其他模板，也可以从空白场地开始。</li>
+          <li><b>摆设施</b>：从左侧选择建造工具，点击场地放置；拖动调整位置，双击查看属性。</li>
+          <li><b>看结果</b>：点击「开始模拟」，观察人员、天气与预算如何影响活动。</li>
         </ol>
-        <p>所有预设场地都可以继续修改，完成后按模拟结果获得经验。</p>
-        <button className="v3-primary" onClick={() => { setShowGuide(false); localStorage.setItem(storageKey, 'done'); }}>进入 3D 场地</button>
+        <p>右键旋转视角，滚轮缩放，按 F 回到场地全景。</p>
+        <button className="v3-primary" onClick={() => { setShowGuide(false); localStorage.setItem(storageKey, 'done'); }}>开始搭建</button>
       </div>
     </div>}
   </div>;

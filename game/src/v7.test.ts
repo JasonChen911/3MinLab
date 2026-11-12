@@ -114,9 +114,17 @@ describe('V7 田径跑道', () => {
   });
   it('体育场预设看台位于跑道外侧', () => {
     for (const size of [50, 80, 110]) {
-      const stands = makeVenueItems('stadium', size === 50 ? 'small' : size === 80 ? 'medium' : 'large').filter(item => item.kind === 'bleachers');
-      expect(stands).toHaveLength(3);
-      for (const stand of stands) expect(Math.abs(stand.x)).toBeGreaterThan(size * .29);
+      const items = makeVenueItems('stadium', size === 50 ? 'small' : size === 80 ? 'medium' : 'large');
+      const stands = items.filter(item => item.kind === 'bleachers');
+      expect(stands).toHaveLength(4);
+      for (const stand of stands) {
+        expect(Math.abs(stand.x)).toBeGreaterThan(size * .29);
+        expect(Math.abs(stand.x) - 1.5 * (stand.scale ?? 1)).toBeGreaterThan(size * .29);
+      }
+      const stage = items.find(item => item.kind === 'stageSmall');
+      expect(stage).toBeDefined();
+      expect(Math.abs(stage!.x)).toBeGreaterThan(size * .29);
+      expect(Math.abs(stage!.z)).toBeGreaterThan(size * .29);
     }
   });
 });

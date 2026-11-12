@@ -173,7 +173,7 @@ export function themeForScene(scene: string): CityTheme {
   };
   switch (scene) {
     case 'athletics':
-      return {...base, name: '运动校园', grass: 0x7fce68, grassAlt: 0xa2e28a, buildingChance: 0.42, parkChance: 0.3, maxHeight: 24, treeDensity: 1.2,
+      return {...base, name: '运动校园', grass: 0x83aa77, grassAlt: 0x95b589, buildingChance: 0.5, parkChance: 0.28, maxHeight: 24, treeDensity: 1.2,
         buildingColors: [0xe8c27f, 0xa9cdbd, 0xdfa88e, 0xc0d49a, 0x9cc0d8]};
     case 'performance':
       return {...base, name: '音乐街区', skyTop: 0x4a8fe0, grass: 0x86cf72, buildingChance: 0.62, parkChance: 0.16, maxHeight: 30, treeDensity: 0.9,
@@ -395,7 +395,7 @@ function cellAt(plan: CityPlan, k: number, l: number, theme: CityTheme, far: boo
   const adjacent = k === 0 || l === 0;
   let kind: CellKind;
   if (central) kind = 'reserved';
-  else if (adjacent) kind = rng() < 0.55 ? 'park' : 'plaza';
+  else if (adjacent) kind = theme.name === '运动校园' ? (rng() < .72 ? 'park' : 'buildings') : rng() < 0.55 ? 'park' : 'plaza';
   else {
     const r = rng();
     if (r < theme.parkChance) kind = 'park';

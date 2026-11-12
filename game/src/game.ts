@@ -99,7 +99,7 @@ export function simulationVenueCost(layout:Layout):number {
 }
 export function layoutCost(layout:Layout):number{return layout.operatingMode==='simulation'?layout.items.reduce((n,item)=>n+simulationItemCost(item),0)+simulationStaffCost(layout)+simulationVenueCost(layout):cost(layout.items);}
 export function capacityOf(item:Item,realMode=false){return Math.round(((realMode?item.parameters?.capacity:undefined)??CATALOG[item.kind].capacity??0)*Math.pow(item.scale??1,2));}
-export function bounds(i:Item){const c=CATALOG[i.kind],scale=i.scale??1,turn=Math.round(i.rotation/90)%2!==0;return {w:(turn?c.d:c.w)*scale,d:(turn?c.w:c.d)*scale};}
+export function bounds(i:Item){const c=CATALOG[i.kind],scale=i.scale??1,angle=i.rotation*Math.PI/180,cos=Math.abs(Math.cos(angle)),sin=Math.abs(Math.sin(angle));return {w:(c.w*cos+c.d*sin)*scale,d:(c.w*sin+c.d*cos)*scale};}
 export type Placement={level:'valid'|'warning'|'invalid';reason:string};
 export function placement(layout:Layout,item:Item,budgetMode:BudgetMode='unlimited'):Placement{
   const b=bounds(item),half=layout.size/2;
@@ -147,6 +147,15 @@ export function batchRotate(layout:Layout,ids:string[],steps=1,budgetMode:Budget
   const reason=batchCheck(layout,items,targets,budgetMode);
   if(reason)return {ok:false,items:layout.items,reason,changed:0};
   return {ok:true,items,reason:`已旋转 ${targets.length} 项设施`,changed:targets.length};
+}
+export function rotateItem(layout:Layout,id:string,rotation:number,budgetMode:BudgetMode='unlimited'):BatchResult{
+  const target=layout.items.find(item=>item.id===id);
+  if(!target||target.locked)return {ok:false,items:layout.items,reason:'设施不存在或已锁定',changed:0};
+  const normalized=((Math.round(rotation)%360)+360)%360;
+  const items=layout.items.map(item=>item.id===id?{...item,rotation:normalized}:item);
+  const reason=batchCheck(layout,items,[id],budgetMode);
+  if(reason)return {ok:false,items:layout.items,reason,changed:0};
+  return {ok:true,items,reason:`已旋转设施至 ${normalized}°`,changed:1};
 }
 export function alignItems(layout:Layout,ids:string[],axis:'x'|'z',budgetMode:BudgetMode='unlimited'):BatchResult{
   const anchor=ids.map(id=>layout.items.find(i=>i.id===id)).find(item=>item&&!item.locked);

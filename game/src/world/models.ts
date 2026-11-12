@@ -125,14 +125,26 @@ function stage(g: THREE.Group, w: number, d: number, color: number, large: boole
 
 function bleachers(g: THREE.Group, w: number, d: number, color: number) {
   const tiers = 4;
+  const concrete = 0x9aa6a2;
+  const seat = new THREE.Color(color).lerp(new THREE.Color(0x476a78), .58).getHex();
+  box(g, w + .22, .16, d + .18, 0x798984, 0, .08);
   for (let n = 0; n < tiers; n++) {
-    const y = .25 + n * .42;
-    box(g, w, .34, 1, color, 0, y, -d / 2 + .6 + n * .78);
-    box(g, w, .12, .12, 0x4c6b5e, 0, y + .25, -d / 2 + .2 + n * .78);
+    const z = d / 2 - .38 - n * (d / tiers);
+    const top = .36 + n * .34;
+    box(g, w, top, d / tiers + .02, concrete, 0, top / 2, z);
+    for (let s = 0; s < 6; s++) {
+      const x = -w / 2 + (s + .5) * w / 6;
+      box(g, w / 6 - .08, .08, .42, s % 3 === 0 ? 0x708f99 : seat, x, top + .04, z - .08);
+      box(g, w / 6 - .08, .28, .07, s % 3 === 0 ? 0x708f99 : seat, x, top + .2, z - .3);
+    }
   }
   for (const side of [-1, 1]) {
-    box(g, .16, 2.2, d, 0x53695f, side * (w / 2 + .1), 1.1, 0);
+    box(g, .14, 1.15, d, 0x697b78, side * (w / 2 + .08), .58, 0);
+    box(g, .06, .06, d, 0xd9dfd5, side * (w / 2 + .08), 1.18, 0);
+    box(g, .09, 2.35, .09, 0x697b78, side * (w * .43), 1.18, -d / 2 + .32);
   }
+  box(g, w + .42, .12, d * .28, 0xd6d9ce, 0, 2.42, -d / 2 + d * .16);
+  box(g, w + .42, .1, .1, 0x5e716e, 0, 2.32, -d / 2 + d * .3);
 }
 
 function tent(g: THREE.Group, w: number, d: number, color: number) {
@@ -177,11 +189,19 @@ export function model(item: Item, ghost?: number): THREE.Group {
       break;
     }
     case 'chair': {
-      box(g, 1.5, .1, 1.1, WOOD, 0, .78);
-      for (const x of [-.58, .58]) for (const z of [-.4, .4]) box(g, .1, .76, .1, 0x7d674f, x, .38, z);
-      for (const [x, z] of [[-1.15, 0], [1.15, 0], [0, -1.05], [0, 1.05]]) {
-        box(g, .55, .42, .55, color, x, .22, z);
-        box(g, .55, .5, .08, color, x, .63, z + (z > 0 ? .26 : -.26));
+      const frame = 0x59636a;
+      box(g, 1.02, .07, .88, WOOD, 0, .73);
+      for (const x of [-.43, .43]) for (const z of [-.36, .36]) box(g, .055, .7, .055, frame, x, .35, z);
+      for (const z of [-.36, .36]) box(g, .9, .08, .05, 0x876b4c, 0, .62, z);
+      for (const x of [-.43, .43]) box(g, .05, .08, .73, 0x876b4c, x, .62);
+      for (const side of [-1, 1]) {
+        box(g, .31, .055, .37, color, side * .79, .46);
+        box(g, .055, .46, .055, frame, side * .79, .23, -.12);
+        box(g, .055, .46, .055, frame, side * .79, .23, .12);
+        box(g, .045, .4, .38, color, side * .965, .69);
+        box(g, .38, .055, .31, color, .0, .46, side * .78);
+        for (const x of [-.12, .12]) box(g, .055, .46, .055, frame, x, .23, side * .78);
+        box(g, .38, .4, .045, color, 0, .69, side * .965);
       }
       break;
     }
@@ -219,24 +239,28 @@ export function model(item: Item, ghost?: number): THREE.Group {
       break;
     }
     case 'checkin': case 'checkinSmall': case 'checkinLarge': {
-      box(g, w, 1, d, color);
-      box(g, w * .94, .14, d * .92, WHITE, 0, 1.07);
-      box(g, w * .82, .38, .05, 0xf7f0df, 0, 1.5, -d / 2 + .05);
-      for (let x = -w / 2 + .7; x < w / 2; x += 1.1) box(g, .32, .22, .06, 0x334b57, x, 1.7, -d / 2 + .05);
-      for (let x = -w / 2 + .65; x <= w / 2 - .6; x += 1.3) {
-        cylinder(g, .035, .035, 1.05, 0x9aa3aa, x, .53, d / 2 + .6, 6);
-        sphere(g, .07, 0xd8b44a, x, 1.06, d / 2 + .6);
+      const front = d / 2 - .2;
+      box(g, w * .9, .09, d * .62, WHITE, 0, .99);
+      for (const x of [-w * .39, w * .39]) for (const z of [-d * .24, d * .24]) box(g, .09, .94, .09, METAL, x, .47, z);
+      box(g, w * .84, .63, .07, color, 0, .6, front);
+      box(g, w * .82, .04, .08, 0xe3e8df, 0, .94, front);
+      for (const x of [-w * .31, w * .31]) {
+        box(g, .38, .035, .24, 0xf2efe5, x, 1.07, -.08);
+        box(g, .26, .025, .17, 0x405461, x, 1.1, -.08);
       }
-      const monitor = box(g, .55, .38, .06, 0x20272f, w * .25, 1.32, -d / 2 + .1);
-      monitor.rotation.x = -.16;
+      box(g, w * .65, .27, .06, 0xf7f0df, 0, 1.48, -d * .27);
+      for (const x of [-w * .32, w * .32]) box(g, .045, .42, .045, METAL, x, 1.27, -d * .27);
       break;
     }
     case 'service': {
-      box(g, w, 1, d, color);
-      box(g, w * .84, .16, .6, 0xe9f4e0, 0, 1.08, 0);
-      box(g, .9, .62, .1, 0x4f8b6b, 0, 1.5, -d / 2 + .06);
-      box(g, .55, .35, .06, 0xdff0d7, 0, 1.5, -d / 2 + .11);
-      for (const x of [-w / 2 + .2, w / 2 - .2]) box(g, .1, 1.1, .1, METAL, x, .55, 0);
+      box(g, w * .88, .09, d * .6, WOOD, 0, 1.02);
+      for (const x of [-w * .38, w * .38]) for (const z of [-d * .24, d * .24]) box(g, .09, .97, .09, METAL, x, .49, z);
+      box(g, w * .79, .65, .07, color, 0, .63, d * .26);
+      box(g, w * .7, .04, .12, 0xe9f4e0, 0, 1.08, d * .25);
+      box(g, .48, .035, .35, 0xf5f4ec, -.45, 1.09, -.1);
+      box(g, .34, .035, .24, 0x87a98d, .42, 1.09, -.1);
+      box(g, .95, .36, .07, 0x4f8b6b, 0, 1.55, -d * .23);
+      for (const x of [-.45, .45]) box(g, .045, .5, .045, METAL, x, 1.29, -d * .23);
       break;
     }
     case 'rest': {
@@ -295,10 +319,14 @@ export function model(item: Item, ghost?: number): THREE.Group {
       break;
     }
     case 'storage': {
-      box(g, w, 1.8, d, color);
-      box(g, w + .2, .12, d + .2, 0x8f7b64, 0, 1.82);
-      for (const x of [-w * .22, w * .22]) box(g, x > 0 ? w * .34 : w * .34, 1.25, .06, 0x9a846d, x, .7, d / 2 + .04);
-      for (const x of [-.9, .9]) box(g, .8, .7, .8, 0x8e785c, x, .55, d / 2 + .5);
+      box(g, w * .92, .12, d * .9, 0x7d8079, 0, .06);
+      for (const x of [-w * .42, w * .42]) for (const z of [-d * .4, d * .4]) box(g, .09, 2.0, .09, METAL, x, 1, z);
+      for (const y of [.42, 1.04, 1.66]) box(g, w * .88, .065, d * .82, 0x9a846d, 0, y);
+      for (const [x, z, y] of [[-.65,-.55,.65],[.55,-.45,.65],[-.25,.48,1.27],[.62,.45,1.27],[-.58,-.3,1.88]]) {
+        box(g, .58, .36, .48, color, x, y, z);
+        box(g, .6, .035, .5, 0xb69a73, x, y + .2, z);
+        box(g, .025, .35, .5, 0x806b51, x, y, z);
+      }
       break;
     }
     case 'roadCurve': {
@@ -416,67 +444,110 @@ export interface PersonRig {
   group: THREE.Group;
   leftArm: THREE.Group;
   rightArm: THREE.Group;
+  leftElbow: THREE.Group;
+  rightElbow: THREE.Group;
   leftLeg: THREE.Group;
   rightLeg: THREE.Group;
+  leftKnee: THREE.Group;
+  rightKnee: THREE.Group;
   torso: THREE.Group;
 }
 
 export function createPerson(shirt: number, pants: number, skin = 0xe6c2a4, hair = 0x4a382c): PersonRig {
   const group = new THREE.Group();
+  const variety = ((shirt ^ (hair << 1) ^ skin) & 7) / 7;
+  group.scale.setScalar(.965 + variety * .07);
   const torso = new THREE.Group();
-  torso.position.y = 1.02;
+  torso.position.y = 1.03;
   group.add(torso);
-  const body = addMesh(torso, geometry('person-torso', () => new THREE.CapsuleGeometry(.19, .42, 4, 8)), material(shirt));
-  body.position.y = .1;
-  const head = addMesh(group, sphereGeometry(.16, 10), material(skin), 0, 1.52, 0);
-  head.scale.set(1, 1.12, .95);
-  addMesh(group, sphereGeometry(.17, 8), material(hair), 0, 1.6, -.02).scale.set(1.02, .72, 1.02);
-  addMesh(group, boxGeometry(.1, .06, .04), material(0x2b2b2b), 0, 1.53, .14);
+  const body = addMesh(torso, geometry('person-shaped-torso', () => new THREE.LatheGeometry([
+    new THREE.Vector2(0, -.36), new THREE.Vector2(.13, -.36), new THREE.Vector2(.18, -.25),
+    new THREE.Vector2(.16, -.04), new THREE.Vector2(.22, .2), new THREE.Vector2(.19, .31),
+    new THREE.Vector2(.095, .38), new THREE.Vector2(0, .38),
+  ], 12)), material(shirt), 0, .06);
+  body.scale.set(.96 + variety * .08, 1, .78);
+  addMesh(torso, cylinderGeometry(.065, .075, .13, 10), material(skin), 0, .43);
+  addMesh(torso, cylinderGeometry(.105, .13, .045, 12), material(new THREE.Color(shirt).multiplyScalar(.78).getHex()), 0, .385);
+  const headRoot = new THREE.Group();
+  headRoot.position.y = .57;
+  torso.add(headRoot);
+  const head = addMesh(headRoot, sphereGeometry(.16, 12), material(skin));
+  head.scale.set(.96, 1.05, .9);
+  const hairCap = addMesh(headRoot, geometry('person-hair-cap', () => new THREE.SphereGeometry(.169, 12, 8, 0, Math.PI * 2, 0, Math.PI * .51)), material(hair, {roughness: 1}), 0, .025, -.01);
+  hairCap.scale.z = 1.06;
+  const part = variety < .5 ? -1 : 1;
+  addMesh(headRoot, sphereGeometry(.075, 8), material(new THREE.Color(hair).multiplyScalar(1.13).getHex(), {roughness: 1}), part * .052, .12, .085).scale.set(1, .5, .78);
+  for (const side of [-1, 1]) {
+    addMesh(headRoot, sphereGeometry(.031, 8), material(skin), side * .153, -.015, 0);
+    addMesh(headRoot, sphereGeometry(.035, 8), material(hair, {roughness: 1}), side * .125, .045, -.09);
+    addMesh(headRoot, sphereGeometry(.012, 6), material(0x443a33), side * .055, -.01, .146);
+  }
+  addMesh(headRoot, sphereGeometry(.025, 8), material(skin), 0, -.06, .148).scale.set(.7, 1, .8);
+  addMesh(group, sphereGeometry(.18, 10), material(pants), 0, .75, 0).scale.set(1, .55, .78);
   const arm = (x: number) => {
     const pivot = new THREE.Group();
-    pivot.position.set(x, 1.38, 0);
+    pivot.position.set(x, 1.36, 0);
     group.add(pivot);
-    const limb = addMesh(pivot, geometry('person-arm', () => new THREE.CapsuleGeometry(.055, .36, 3, 6)), material(shirt));
-    limb.position.y = -.24;
-    addMesh(pivot, sphereGeometry(.065, 6), material(skin), 0, -.47, 0);
-    return pivot;
+    addMesh(pivot, geometry('person-upper-arm', () => new THREE.CapsuleGeometry(.076, .17, 3, 8)), material(shirt), 0, -.12);
+    const elbow = new THREE.Group();
+    elbow.position.y = -.245;
+    pivot.add(elbow);
+    addMesh(elbow, geometry('person-forearm', () => new THREE.CapsuleGeometry(.052, .16, 3, 8)), material(skin), 0, -.11);
+    addMesh(elbow, sphereGeometry(.056, 8), material(skin), 0, -.235);
+    return {pivot, elbow};
   };
   const leg = (x: number) => {
     const pivot = new THREE.Group();
-    pivot.position.set(x, .82, 0);
+    pivot.position.set(x, .8, 0);
     group.add(pivot);
-    const limb = addMesh(pivot, geometry('person-leg', () => new THREE.CapsuleGeometry(.075, .48, 3, 6)), material(pants));
-    limb.position.y = -.3;
-    addMesh(pivot, boxGeometry(.15, .08, .25), material(0x3a3a3a), 0, -.62, .05);
-    return pivot;
+    addMesh(pivot, geometry('person-thigh', () => new THREE.CapsuleGeometry(.08, .28, 3, 8)), material(pants), 0, -.18);
+    const knee = new THREE.Group();
+    knee.position.y = -.365;
+    pivot.add(knee);
+    addMesh(knee, geometry('person-shin', () => new THREE.CapsuleGeometry(.067, .28, 3, 8)), material(pants), 0, -.16);
+    addMesh(knee, sphereGeometry(.085, 10), material(0x34404a), 0, -.345, .06).scale.set(.95, .55, 1.35);
+    return {pivot, knee};
   };
-  const leftArm = arm(-.26), rightArm = arm(.26), leftLeg = leg(-.11), rightLeg = leg(.11);
+  const leftArmRig = arm(-.24), rightArmRig = arm(.24), leftLegRig = leg(-.105), rightLegRig = leg(.105);
   group.userData.isPerson = true;
-  return {group, leftArm, rightArm, leftLeg, rightLeg, torso};
+  return {
+    group, torso,
+    leftArm: leftArmRig.pivot, rightArm: rightArmRig.pivot,
+    leftElbow: leftArmRig.elbow, rightElbow: rightArmRig.elbow,
+    leftLeg: leftLegRig.pivot, rightLeg: rightLegRig.pivot,
+    leftKnee: leftLegRig.knee, rightKnee: rightLegRig.knee,
+  };
 }
 
 export function animatePerson(rig: PersonRig, time: number, moving: boolean, speed = 1, pose: 'normal' | 'seated' | 'resting' | 'performing' | 'running' = 'normal') {
   const phase = time * 8 * Math.max(.5, speed);
-  const amount = pose === 'running' ? .95 : moving ? .62 : .06;
+  const amount = pose === 'running' ? .78 : moving ? .5 : .025;
   const swing = Math.sin(phase) * amount;
   rig.leftLeg.rotation.x = swing;
   rig.rightLeg.rotation.x = -swing;
-  rig.leftArm.rotation.x = -swing * .8;
-  rig.rightArm.rotation.x = swing * .8;
-  rig.leftArm.rotation.z = .08;
-  rig.rightArm.rotation.z = -.08;
-  const bob = moving ? Math.abs(Math.sin(phase)) * .045 : Math.sin(time * 2) * .01;
-  rig.torso.position.y = 1.02 + bob;
+  rig.leftKnee.rotation.x = moving ? Math.max(0, swing) * .75 : 0;
+  rig.rightKnee.rotation.x = moving ? Math.max(0, -swing) * .75 : 0;
+  rig.leftArm.rotation.x = -swing * .65;
+  rig.rightArm.rotation.x = swing * .65;
+  rig.leftElbow.rotation.x = .15 + (moving ? Math.max(0, -swing) * .4 : 0);
+  rig.rightElbow.rotation.x = .15 + (moving ? Math.max(0, swing) * .4 : 0);
+  rig.leftArm.rotation.z = .09;
+  rig.rightArm.rotation.z = -.09;
+  const bob = moving ? Math.abs(Math.sin(phase)) * .018 : Math.sin(time * 2) * .006;
+  rig.torso.position.y = 1.03 + bob;
+  rig.torso.rotation.z = moving ? Math.sin(phase) * .012 : 0;
   if (pose === 'seated' || pose === 'resting') {
     rig.leftLeg.rotation.x = pose === 'seated' ? -1.2 : -.25;
     rig.rightLeg.rotation.x = pose === 'seated' ? -1.2 : -.25;
+    rig.leftKnee.rotation.x = pose === 'seated' ? 1.35 : .38;
+    rig.rightKnee.rotation.x = pose === 'seated' ? 1.35 : .38;
     rig.leftArm.rotation.x = pose === 'seated' ? -.2 : .12;
     rig.rightArm.rotation.x = pose === 'seated' ? -.2 : .12;
-    rig.torso.position.y = 1.02;
+    rig.torso.position.y = 1.03;
   } else if (pose === 'performing') {
     rig.leftArm.rotation.z = .55 + Math.sin(time * 3) * .28;
     rig.rightArm.rotation.z = -.55 - Math.sin(time * 3 + 1) * .28;
-    rig.torso.position.y = 1.02 + Math.abs(Math.sin(time * 3)) * .055;
+    rig.torso.position.y = 1.03 + Math.abs(Math.sin(time * 3)) * .045;
   }
 }
 
