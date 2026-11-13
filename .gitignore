@@ -6,3 +6,6 @@ dist
 dev.log
 *.local.log
 *.local.png
+playwright-report/
+test-results/
+local-server*.log

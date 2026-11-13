@@ -15,22 +15,37 @@ export function parseDelimited(text: string): string[][] {
   if(quoted)throw new Error('引号未闭合，请检查 CSV');
   row.push(cell);if(row.some(v=>v.trim()))rows.push(row);return rows;
 }
+const headerAliases:Record<string,string>={'姓名':'姓名或代号','姓名/代号':'姓名或代号','角色':'角色（逗号分隔）','所属组织':'组织单位'};
+export function prepareGridImport(matrix:string[][],fields:Field[],existing:DataRow[],name:string){
+ if(matrix.length<2)throw new Error('文件没有数据行');
+ const header=matrix[0].map(v=>headerAliases[String(v).trim()]??String(v).trim());
+ const unknown=header.filter(label=>label&&!fields.some(field=>field.label===label));
+ if(unknown.length)throw new Error(`以下列未匹配，导入已取消：${unknown.join('、')}`);
+ const mapped=fields.map(field=>header.indexOf(field.label));
+ if(mapped.every(index=>index<0))throw new Error(`首行必须包含表头：${fields.map(field=>field.label).join('、')}`);
+ if(name==='人员'&&mapped[fields.findIndex(field=>field.key==='name')]<0)throw new Error('人员名册缺少“姓名”列');
+ if(matrix.length>2001)throw new Error('单次最多导入 2000 行');
+ const signature=(row:DataRow)=>[row.name,row.roles,row.organization].map(v=>String(v??'').trim().replace(/\s+/g,'').toLowerCase()).join('|');
+ const seen=new Set(name==='人员'?existing.map(signature):[]);let skipped=0;
+ const incoming=matrix.slice(1).flatMap(cells=>{const row=Object.fromEntries([['id',uid()],...fields.map((field,i)=>[field.key,mapped[i]<0?'':String(cells[mapped[i]]??'').trim()])]) as DataRow;
+  if(!fields.some(field=>row[field.key])){skipped++;return [];}
+  if(name==='人员'){if(!row.name)throw new Error('人员名册有空姓名，导入已取消');const key=signature(row);if(seen.has(key)){skipped++;return [];}seen.add(key);}
+  return [row];});
+ if(!incoming.length)throw new Error(skipped?'没有可新增的数据行；请检查重复记录':'文件没有数据行');
+ return {incoming,skipped};
+}
 export default function Grid({ fields, rows, onChange, onFields, name='数据表', importable=false }: {fields:Field[];rows:DataRow[];onChange:(rows:DataRow[])=>void;onFields?:(fields:Field[])=>void;name?:string;importable?:boolean}) {
   const {ask,dialog}=useDecision();
   const [query,setQuery]=useState(''); const [error,setError]=useState(''); const input=useRef<HTMLInputElement>(null);
   const update=(id:string,key:string,value:string)=>onChange(rows.map(row=>row.id===id?{...row,[key]:value}:row));
   async function importFile(file: File) {
     try {
+      if(!/\.(csv|tsv|xlsx)$/i.test(file.name))throw new Error('只支持 CSV、TSV 或 Excel（.xlsx）文件');
       let matrix:string[][];
       if(/\.xlsx$/i.test(file.name)) {const form=new FormData();form.append('file',file);const response=await fetch('/api/files/import-xlsx',{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:await file.arrayBuffer()});const data=await response.json();if(!response.ok)throw new Error(data.error??'导入失败');matrix=data.rows;}
       else matrix=parseDelimited(await file.text());
-      if(!matrix.length)throw new Error('文件没有数据');
-      const header=matrix[0].map(v=>String(v).trim());
-      const mapped=fields.map(field=>header.indexOf(field.label));
-      if(mapped.every(index=>index<0))throw new Error(`首行必须包含表头：${fields.map(field=>field.label).join('、')}`);
-      if(matrix.length>2001)throw new Error('单次最多导入 2000 行');
-      const incoming=matrix.slice(1).map(cells=>Object.fromEntries([['id',uid()],...fields.map((field,i)=>[field.key,mapped[i]<0?'':String(cells[mapped[i]]??'')])]) as DataRow);
-      onChange([...rows,...incoming]);setError(`已导入 ${incoming.length} 行，请核对数据与重复记录。`);
+      const {incoming,skipped}=prepareGridImport(matrix,fields,rows,name);
+      onChange([...rows,...incoming]);setError(`已导入 ${incoming.length} 行${skipped?`，跳过 ${skipped} 行空白或重复记录`:''}。`);
     }catch(err){setError(err instanceof Error?err.message:'导入失败');}
   }
   return <div className="wb-grid">

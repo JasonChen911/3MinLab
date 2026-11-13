@@ -8,7 +8,9 @@
     "postinstall": "npm --prefix game install",
     "build": "npm --prefix game run build && tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "test": "vitest run src && node --test server/*.test.mjs",
+    "test": "vitest run --exclude 'standalone-game/**' src && node --test server/*.test.mjs",
+    "test:e2e": "playwright test",
+    "check": "npm test && npm --prefix game test && npm --prefix standalone-game test && npm run test:e2e && npm run build && npm --prefix standalone-game run build",
     "start": "node --env-file-if-exists=.env.local server/index.mjs",
     "test:watch": "vitest"
   },
@@ -23,6 +25,7 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.65.0",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

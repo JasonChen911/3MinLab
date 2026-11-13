@@ -283,7 +283,7 @@ export function analyzeFacilities(layout: Layout, catalog: Record<Kind, Facility
   if (equipmentRisk > .58) warnings.push('设备受天气或损坏影响，故障风险偏高');
   if (comfort < 48) warnings.push(`现场舒适度 ${comfort}/100，休息、遮雨或卫生设施不足`);
 
-  if (counts.entry && queueRisk < .22) strengths.push(`入场吞吐充足（约 ${Math.round(expectedQueueMinutes)} 分钟消化客流）`);
+  if (counts.entry && checkinDesks > 0 && queueRisk < .22) strengths.push(`入场吞吐充足（约 ${Math.round(expectedQueueMinutes)} 分钟消化客流）`);
   if (seating >= people * .85) strengths.push(`座位覆盖 ${Math.round(seating / people * 100)}% 的参与人数`);
   if (medicalUnits > 0) strengths.push(`医疗点覆盖半径 ${facilityImpact('medical').radius} 米`);
   if (shelterCoverage > .5) strengths.push(`遮雨覆盖 ${Math.round(shelterCoverage * 100)}% 的目标人群`);

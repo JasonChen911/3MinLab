@@ -13,7 +13,7 @@ import { difficultyProfile } from '../difficulty';
 
 export { addIncident };
 
-export function suggestedParameters(snapshot:Snapshot):Parameters { return {...defaults,staff:snapshot.roles.reduce((a,r)=>a+r.count,0)||12,capacity:Math.max(1,Math.ceil(snapshot.people*1.1-1e-9))}; }
+export function suggestedParameters(snapshot:Snapshot):Parameters { return {...defaults,staff:snapshot.roles.reduce((a,r)=>a+r.count,0)||12,capacity:Math.min(20000,Math.max(1,Math.ceil(snapshot.people*1.1-1e-9)))}; }
 export function validateParameters(p:Parameters) {
   const issues:string[]=[];
   for(const k of ['attendance','late','absence'] as const)if(!Number.isFinite(p[k])||p[k]<0||p[k]>1)issues.push(`${k} 应在 0–1 之间`);
