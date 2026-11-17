@@ -16,10 +16,11 @@ export function toBridgePlan(project:ActivityProject):BridgePlan{
  const flow=workspace?.flow.length?workspace.flow:timeline?.kind==='timeline'?timeline.entries.map((entry,i)=>({id:`plan-${i}`,title:entry.title,start:entry.time.split(/[–—-]/)[0]||'',end:entry.time.split(/[–—-]/)[1]||'',owner:'',equipment:'',venue:''})):[];
  const plannedStaff=project.plan?.modules.find(module=>module.id==='organization')?.blocks.find(block=>block.kind==='staff');
  const rows=plannedStaff?.kind==='staff'?plannedStaff.rows:[];
- const rosterStaff=workspace?.people.filter(p=>p.roles.some(r=>/工作|员工|裁判|主持|志愿|会务|后勤/.test(r))).length??0;
+ const rosterStaff=workspace?.people.filter(p=>p.roles.some(r=>/工作|员工|裁判|主持|会务|后勤/.test(r))).length??0;
  const rosterVolunteers=workspace?.people.filter(p=>p.roles.some(r=>/志愿/.test(r))).length??0;
- const staff=rosterStaff||rows.reduce((sum,row)=>sum+Math.max(0,row.count),0);
- const volunteers=rosterVolunteers||rows.filter(row=>/志愿/.test(row.role)).reduce((sum,row)=>sum+Math.max(0,row.count),0);
+ // A partial named roster must not reduce the planned staffing level.
+ const staff=Math.max(rosterStaff,rows.filter(row=>!/志愿/.test(row.role)).reduce((sum,row)=>sum+Math.max(0,row.count),0));
+ const volunteers=Math.max(rosterVolunteers,rows.filter(row=>/志愿/.test(row.role)).reduce((sum,row)=>sum+Math.max(0,row.count),0));
  const actual=(workspace?.tables.expenses?.rows??[]).map(row=>({name:text(row.item||row.name||row.category),amount:Number(row.amount||row.cost)||0})).filter(row=>row.name);
  const planned=project.plan?.modules.find(module=>module.id==='budget')?.blocks.find(block=>block.kind==='budget');
  const budgetItems=actual.length?actual:planned?.kind==='budget'?planned.rows.map(row=>({name:row.item||row.category,amount:row.amount})):[];

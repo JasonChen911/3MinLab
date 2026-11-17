@@ -112,7 +112,8 @@ function fixOf(text: string): string {
   if (/缺少签到台/.test(text)) return '在入口内侧 4–8 米处放置签到台，留出排队区。';
   if (/缺少主活动区域/.test(text)) return '放置舞台、讲台或观众席，明确活动核心区。';
   if (/缺少活动流程/.test(text)) return '在活动信息中补充流程任务与时间。';
-  if (/参与人数/.test(text)) return '将参与人数设置为大于零的有效值。';
+  if (/场地容量.*小于参与人数/.test(text)) return '在设置中选择容量足够的大型场地，或按实际可容纳人数调整活动规模；不要只修改模拟容量参数。';
+  if (/参与人数应大于零/.test(text)) return '将参与人数设置为大于零的有效值。';
   if (/签到台与入口|距离过近/.test(text)) return '将签到台后移，入口与签到台之间保留 4–8 米排队缓冲。';
   if (/座位/.test(text)) return '增加观众席或座椅，或降低参与人数。';
   if (/没有医疗点/.test(text)) return '放置医疗点，并覆盖主要人群与入口。';

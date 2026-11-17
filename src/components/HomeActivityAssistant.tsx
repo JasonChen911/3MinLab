@@ -19,7 +19,7 @@ export default function HomeActivityAssistant({idea,onIdea,onManual,onConfirm,id
  async function request(nextTurns:ActivityTurn[]=turns){if(idea.trim().length<4||busy)return;setBusy(true);setError('');try{
   const context=[idea.trim(),...nextTurns.map(turn=>`AI 问：${turn.question}\n组织者回答：${turn.answer}`)].join('\n').slice(0,1900);
   const next=await requestActivityDraft(context);setDraft(next);setTurns(nextTurns);setReply('');setEditing(null);
- }catch(cause){setError(cause instanceof Error?cause.message:'AI 暂时不可用，请手动创建');}finally{setBusy(false);}}
+ }catch(cause){const message=cause instanceof Error?cause.message:'AI 暂时不可用，请手动创建';if(/未配置|API Key/.test(message)){onManual(idea);return;}setError(message);}finally{setBusy(false);}}
  function answer(){if(!question||!reply.trim())return;const next={question,answer:reply.trim()};void request(editing===null?[...turns,next]:[...turns.slice(0,editing),next]);}
  return <div className="home-ai">
   <div className="home-ai-heading"><Sparkles size={20}/><div><strong>你想举办一场什么样的活动？</strong><span>告诉 AI 你的想法，先看一份可修改的活动初稿。</span><span className="home-ai-feature">↘ AI 引导式策划 · 边聊边完善</span></div></div>

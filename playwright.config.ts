@@ -3,6 +3,6 @@ import {defineConfig,devices} from '@playwright/test';
 export default defineConfig({
  testDir:'./e2e',
  timeout:45_000,
- use:{...devices['Desktop Chrome'],baseURL:'http://127.0.0.1:5173',trace:'retain-on-failure'},
- webServer:{command:'npm run dev',url:'http://127.0.0.1:5173/',reuseExistingServer:!process.env.CI,timeout:60_000},
+ use:{...devices['Desktop Chrome'],baseURL:'http://127.0.0.1:5183',trace:'retain-on-failure'},
+ webServer:{command:'npm run dev',url:'http://127.0.0.1:5183/',env:{API_PORT:'8798',VITE_PORT:'5183'},reuseExistingServer:!process.env.CI,timeout:60_000},
 });

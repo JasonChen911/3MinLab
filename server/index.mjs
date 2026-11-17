@@ -11,6 +11,7 @@ import { requestAdjustment } from './assistant-ai.mjs';
 const root = resolve(fileURLToPath(new URL('../dist/', import.meta.url)));
 const port = Number(process.env.API_PORT || 8787);
 const host = process.env.HOST || '127.0.0.1';
+const frontendPort = Number(process.env.VITE_PORT || 5173);
 const mime = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.webp': 'image/webp' };
 const recentRequests = [];
 
@@ -32,13 +33,13 @@ const server = createServer(async (req, res) => {
   const pathname = new URL(req.url || '/', `http://${host}:${port}`).pathname;
 
   if (pathname.startsWith('/api/')) {
-    const allowedHosts=new Set([`127.0.0.1:${port}`,`localhost:${port}`,`${host}:${port}`,'127.0.0.1:5173','localhost:5173']);
+    const allowedHosts=new Set([`127.0.0.1:${port}`,`localhost:${port}`,`${host}:${port}`,`127.0.0.1:${frontendPort}`,`localhost:${frontendPort}`]);
     if(!allowedHosts.has(req.headers.host))return send(res,403,{error:'仅接受本机服务地址'});
     const controller=new AbortController();res.on('close',()=>{if(!res.writableEnded)controller.abort();});
     const requestFetch=(url,options)=>providerFetch(url,{...options,signal:AbortSignal.any([controller.signal,...(options.signal?[options.signal]:[])])});
 
     const origin = req.headers.origin;
-    if (origin && !new Set([`http://127.0.0.1:5173`, `http://localhost:5173`, `http://${host}:${port}`]).has(origin)) {
+    if (origin && !new Set([`http://127.0.0.1:${frontendPort}`, `http://localhost:${frontendPort}`, `http://${host}:${port}`]).has(origin)) {
       return send(res, 403, { error: '来源不受支持' });
     }
     if(pathname==='/api/ai/config'&&req.method==='GET')return send(res,200,aiStatus());

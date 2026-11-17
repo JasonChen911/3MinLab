@@ -5,7 +5,7 @@ const vite = fileURLToPath(new URL('../node_modules/vite/bin/vite.js', import.me
 const api = fileURLToPath(new URL('../server/index.mjs', import.meta.url));
 const children = [
   spawn(process.execPath, ['--env-file-if-exists=.env.local', api], { stdio: 'inherit' }),
-  spawn(process.execPath, [vite, '--host', '127.0.0.1'], { stdio: 'inherit' }),
+  spawn(process.execPath, [vite, '--host', '127.0.0.1', '--port', process.env.VITE_PORT || '5173', '--strictPort'], { stdio: 'inherit' }),
 ];
 for (const child of children) child.on('exit', code => { if (code) process.exitCode = code; });
 process.on('SIGINT', () => { for (const child of children) child.kill('SIGINT'); });

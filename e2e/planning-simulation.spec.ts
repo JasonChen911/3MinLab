@@ -11,10 +11,11 @@ test('预设策划可进入工作台，并在同页完成固定方案模拟',asy
  await expect(page.getByRole('textbox',{name:'随机种子'})).toBeHidden();
  await page.getByRole('checkbox',{name:/我已核对人员/}).check();
  await page.getByRole('button',{name:'快速模拟并查看结果'}).click();
- await expect(page.getByText('快速模拟已在本页完成', {exact:false})).toBeVisible();
  await expect(page.getByRole('heading',{name:/实验复盘/})).toBeVisible();
+ await expect(page.getByText('快速模拟已完成并自动保存', {exact:false})).toBeVisible();
  await page.reload();
  await expect(page.getByRole('button',{name:/模拟与执行/})).toHaveAttribute('aria-current','step');
+ await expect(page.getByRole('heading',{name:/实验复盘/})).toBeVisible();
 });
 
 test('首页输入 Shift+Enter 换行而不提交',async({page})=>{
