@@ -8,7 +8,7 @@ export function recommendedGroupNames(plan:EventPlan){
  return large?[...new Set([...common,...special,'财务组'])]:['统筹组','执行组'];
 }
 export function createWorkGroup(name:string):WorkGroup{return {id:uid(),name,leader:'',members:'',contact:'',goal:'',duties:'',reporting:'',tasks:[]};}
-export function createGroupTask():WorkGroupTask{return {id:uid(),title:'',content:'',owner:'',collaborators:'',start:'',due:'',resources:'',budget:0,dependsOn:'',deliverable:'',status:'待开始'};}
+export function createGroupTask():WorkGroupTask{return {id:uid(),title:'',content:'',owner:'',collaborators:'',start:'',due:'',resources:'',budget:0,dependsOn:'',deliverable:'',status:'未开始',priority:'中'};}
 export function groupIssues(group:WorkGroup,all:WorkGroup[]){
  const problems:string[]=[];const tasks=all.flatMap(g=>g.tasks);
  for(const task of group.tasks){if(!task.owner.trim())problems.push(`${task.title||'未命名任务'}缺少负责人`);if(task.start&&task.due&&task.due<task.start)problems.push(`${task.title||'未命名任务'}的截止时间早于开始时间`);if(task.dependsOn){const parent=tasks.find(t=>t.id===task.dependsOn);if(!parent)problems.push(`${task.title||'未命名任务'}的前置任务不存在`);else if(parent.due&&task.start&&parent.due>task.start)problems.push(`${task.title||'未命名任务'}早于前置任务完成`);}}return problems;

@@ -6,10 +6,12 @@ import { fingerprint as simulationFingerprint } from '../simulation/model';
 import PlanningFlow from './PlanningFlow';
 import WorkGroupsPanel from './WorkGroupsPanel';
 import { cloneElement, isValidElement, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
-import { ArrowRight, CalendarDays, FileText, LayoutDashboard, Users, Wrench, BarChart3, MapPin, CheckCircle2, Sparkles } from 'lucide-react';
+import { ArrowRight, CalendarDays, FileText, LayoutDashboard, Users, Wrench, BarChart3, MapPin, CheckCircle2, Sparkles, ClipboardList, Wallet, ShieldAlert, Box, Download, History } from 'lucide-react';
 import type { EventPlan, ModuleId, PlanningStatus } from '../types';
 import { SCENES, TOOLS, recommendedTools, fields as makeFields } from './registry';
-import { uid, type ActivityDocument, type CustomTemplate, type Scene, type Workspace } from './model';
+import { uid, type ActivityDocument, type CustomTemplate, type Workspace } from './model';
+import OrganizationCenter, { OrganizationPanel, TasksPanel, SchedulePanel, BudgetPanel, RisksPanel, SitePanel, ExportsPanel } from './OrganizationCenter';
+import { buildCenterExport, flattenTasks, normalizeWorkspace, type CenterExportKind } from './center';
 import { loadTemplates, loadWorkspace, saveTemplates, saveWorkspace } from './storage';
 import { contextVariables, createDocument, documentContent, documentSource, exportDocument, getDefinition, scoringData, sportsData, syncDocuments, tableRows, updateTable } from './documents';
 import { teamStandings, validateEntries, scheduleConflicts, resultIssues } from './athletics';
@@ -25,13 +27,14 @@ import type { AdjustmentProposal } from '../assistant/service';
 import OrganizerIdeaUpload from '../materials/OrganizerIdeaUpload';
 import MaterialsCenter from '../materials/MaterialsCenter';
 import { expenseStats } from '../materials/import';
-import { PROJECT_STATUSES } from '../projects/model';
 import './workbench.css';
-const tabs=[{id:'overview',name:'活动概览',icon:LayoutDashboard},{id:'plan',name:'策划方案',icon:FileText},{id:'materials',name:'活动资料',icon:FileText},{id:'tools',name:'专属工具箱',icon:Wrench},{id:'documents',name:'文档中心',icon:FileText},{id:'people',name:'人员与任务',icon:Users},{id:'stats',name:'数据统计',icon:BarChart3},{id:'simulation',name:'活动模拟',icon:BarChart3}];
-const groups=[{id:'overview',name:'活动概览',items:['overview']},{id:'plan',name:'活动策划',items:['plan','materials','tools','documents','people','stats']},{id:'analysis',name:'智能分析',items:['analysis']},{id:'simulation',name:'模拟与执行',items:['simulation','live']},{id:'review',name:'活动复盘',items:['review']}];
+import './center.css';
+const primaryTabs=[{id:'overview',name:'活动总览',icon:LayoutDashboard},{id:'organization',name:'组织架构',icon:Users},{id:'tasks',name:'工作任务',icon:ClipboardList},{id:'schedule',name:'活动日程',icon:CalendarDays},{id:'budget',name:'预算与资源',icon:Wallet},{id:'risks',name:'风险管理',icon:ShieldAlert},{id:'site',name:'场地与 3D',icon:Box},{id:'exports',name:'资料与导出',icon:Download}];
+const advancedTabs=[{id:'plan',name:'策划方案',icon:FileText},{id:'materials',name:'活动资料',icon:FileText},{id:'tools',name:'专属工具箱',icon:Wrench},{id:'documents',name:'文档中心',icon:FileText},{id:'people',name:'人员与任务',icon:Users},{id:'stats',name:'数据统计',icon:BarChart3},{id:'analysis',name:'智能分析',icon:Sparkles},{id:'simulation',name:'活动模拟',icon:Box},{id:'live',name:'现场执行',icon:CheckCircle2},{id:'review',name:'活动复盘',icon:History}];
+const allTabs=[...primaryTabs,...advancedTabs];
 const categories=['全部','活动策划文件','报名与人员资料','活动流程文件','任务分工文件','预算与物资文件','活动专属文件','成绩与统计文件','总结与反馈文件'];
 export default function WorkspaceHub({plan,apiKey,children,onPlanChange,onRestoreProject,onOpenGame,assistantRequest,onStageStatus,onStageAiConfirm,onSelectModule,onCheckpoint}:{plan:EventPlan;apiKey:string;children:ReactNode;onPlanChange?:(plan:EventPlan)=>void;onRestoreProject?:(project:import('../projects/model').ActivityProject)=>void;onOpenGame?:()=>void;assistantRequest?:{id:string;text:string}|null;onStageStatus:(id:ModuleId,status:PlanningStatus,note?:string)=>void;onStageAiConfirm:(id:ModuleId,text:string,items:string[],conversation:{question:string;answer:string}[],fields:Partial<Record<'title'|'people'|'budget'|'duration'|'date'|'venue'|'venueNote'|'goal'|'audience'|'constraints',string|number>>)=>void;onSelectModule:(id:ModuleId)=>void;onCheckpoint:()=>Promise<unknown>}) {
-  const [loaded]=useState(()=>loadWorkspace(plan));const [data,setData]=useState(loaded.data);const [tab,setTab]=useState(()=>{try{const saved=sessionStorage.getItem(`3minlab-workspace-tab:${plan.id}`);return saved&&groups.some(group=>group.items.includes(saved))?saved:'overview';}catch{return 'overview';}});const [status,setStatus]=useState(loaded.error);const [activeTool,setActiveTool]=useState('');const [selectedDoc,setSelectedDoc]=useState('');const [query,setQuery]=useState('');const [category,setCategory]=useState('全部');const [busy,setBusy]=useState('');const [library,setLibrary]=useState(loadTemplates);const [aiDraft,setAiDraft]=useState('');const [suggestion,setSuggestion]=useState<{toolIds:string[];fields:string[];reason:string}|null>(null);const [readError,setReadError]=useState(!!loaded.error);
+  const [loaded]=useState(()=>loadWorkspace(plan));const [data,setData]=useState(loaded.data);const [tab,setTab]=useState(()=>{try{const saved=sessionStorage.getItem(`3minlab-workspace-tab:${plan.id}`);return saved&&allTabs.some(item=>item.id===saved)?saved:'overview';}catch{return 'overview';}});const [status,setStatus]=useState(loaded.error);const [activeTool,setActiveTool]=useState('');const [selectedDoc,setSelectedDoc]=useState('');const [query,setQuery]=useState('');const [category,setCategory]=useState('全部');const [busy,setBusy]=useState('');const [library,setLibrary]=useState(loadTemplates);const [aiDraft,setAiDraft]=useState('');const [suggestion,setSuggestion]=useState<{toolIds:string[];fields:string[];reason:string}|null>(null);const [readError,setReadError]=useState(!!loaded.error);
   useEffect(()=>{try{sessionStorage.setItem(`3minlab-workspace-tab:${plan.id}`,tab);}catch{/* 存储不可用时仍保留本次页面状态 */}},[plan.id,tab]);
   const workspaceEdited=useRef(false);
   const [flowRequest,setFlowRequest]=useState<{id:string;text:string}|null>(null);
@@ -40,23 +43,23 @@ export default function WorkspaceHub({plan,apiKey,children,onPlanChange,onRestor
   async function commit(next:Workspace,reason?:string) {
     workspaceEdited.current=true;
     if(readError){setStatus('存档异常，已阻止覆盖。请先导出原始存档再保存。');return false;}
-    const synced=syncDocuments(next,plan);setData(synced);saveWorkspace(synced);setStatus('正在保存活动资料…');
+    const synced=normalizeWorkspace(syncDocuments(next,plan));setData(synced);saveWorkspace(synced);setStatus('正在保存活动资料…');
     try {const saved=reason?await projectRepository.update(plan.id,current=>{if(!current)throw new Error('请先保存活动');const version={id:uid(),createdAt:new Date().toISOString(),reason,source:'user' as const,before:{plan:current.plan,draft:current.draft,workspace:current.workspace,attachments:current.attachments},afterSummary:[reason,'原文件保留，结构化数据经确认追加导入'],documentChanges:synced.documents.filter(doc=>doc.version!==(current.workspace?.documents.find(old=>old.id===doc.id)?.version??doc.version)).map(doc=>doc.name),afterFingerprint:JSON.stringify([plan,synced])};return {...current,plan,draft:plan.brief,workspace:synced,versions:[...current.versions,version].slice(-20)};}):await saveProjectParts(plan.id,{draft:plan.brief,plan,workspace:synced,stage:'plan'});setStatus(`已保存：${new Date(saved.updatedAt).toLocaleTimeString('zh-CN')}`);return true;}catch(error){setStatus(error instanceof Error?error.message:'保存失败，请备份');return false;}
   }
 
-  useEffect(()=>{let alive=true;void projectRepository.get(plan.id).then(project=>{if(alive&&!workspaceEdited.current&&project?.workspace){setData(syncDocuments(project.workspace,plan));saveWorkspace(project.workspace);}}).catch(error=>setStatus(error.message));return()=>{alive=false;};},[plan.id]);
+  useEffect(()=>{let alive=true;void projectRepository.get(plan.id).then(project=>{if(alive&&!workspaceEdited.current&&project?.workspace){const restored=normalizeWorkspace(syncDocuments(project.workspace,plan));setData(restored);saveWorkspace(restored);}}).catch(error=>setStatus(error.message));return()=>{alive=false;};},[plan.id]);
   useEffect(()=>{const synced=syncDocuments(data,plan);if(JSON.stringify(synced.documents)!==JSON.stringify(data.documents))commit(synced);},[plan]); // 已编辑文档只提示过期，不自动覆盖
   async function acceptAssistant(proposal:AdjustmentProposal,selected:string[],overwrite:import('../types').ModuleId[]) {
     const saved=await acceptAdjustment(plan.id,plan,data,proposal,selected,overwrite);
-    if(saved.workspace){setData(saved.workspace);saveWorkspace(saved.workspace);}if(saved.plan)onPlanChange?.(saved.plan);setStatus(`调整已保存：${new Date(saved.updatedAt).toLocaleTimeString('zh-CN')}`);
+    if(saved.workspace){const restored=normalizeWorkspace(saved.workspace);setData(restored);saveWorkspace(restored);}if(saved.plan)onPlanChange?.(saved.plan);setStatus(`调整已保存：${new Date(saved.updatedAt).toLocaleTimeString('zh-CN')}`);
   }
   async function undoAssistant(force=false) {
     const restored=await undoAdjustment(plan.id,force);
-    if(restored.workspace){setData(restored.workspace);saveWorkspace(restored.workspace);}if(restored.plan)onPlanChange?.(restored.plan);else onRestoreProject?.(restored);setStatus('已撤销最近一次重要调整');
+    if(restored.workspace){const normalized=normalizeWorkspace(restored.workspace);setData(normalized);saveWorkspace(normalized);}if(restored.plan)onPlanChange?.(restored.plan);else onRestoreProject?.(restored);setStatus('已撤销最近一次重要调整');
   }
   const active=getDefinition(activeTool,data);const doc=data.documents.find(item=>item.id===selectedDoc);
   const suggested=recommendedTools(data);const enabled=data.tools.map(id=>getDefinition(id,data)).filter((tool):tool is NonNullable<typeof tool>=>!!tool);
-  const taskRows=tableRows(data,'tasks');const completed=taskRows.filter(row=>row.status==='已完成').length;
+  const taskRows=tableRows(data,'tasks');const centerTasks=flattenTasks(data);const allTaskCount=taskRows.length+centerTasks.length;const allTaskDone=taskRows.filter(row=>row.status==='已完成').length+centerTasks.filter(item=>item.task.status==='已完成').length;
   const sourceFor=(document:ActivityDocument)=>document.toolId==='plan'?JSON.stringify([exportModules(plan),plan.planningMode,plan.moduleStates,data.workGroups,data.flow,data.profile]):documentSource(data,plan,document.toolId);
   function generateDoc(id:string) {
     const previous=data.documents.find(item=>item.toolId===id);
@@ -98,6 +101,25 @@ export default function WorkspaceHub({plan,apiKey,children,onPlanChange,onRestor
     onPlanChange?.(next);setStatus('仿真建议已确认写入风险章节');
   }
   function backup() {void downloadProjectBackup(plan.id).then(()=>setStatus('完整活动备份已下载，包含附件原文件')).catch(error=>setStatus(error.message));}
+  async function checkpoint() {
+    setBusy('正在保存检查点…');
+    try { await onCheckpoint(); setStatus('已保存检查点'); }
+    catch (error) { setStatus(error instanceof Error ? error.message : '保存检查点失败'); }
+    finally { setBusy(''); }
+  }
+  async function exportCenter(kind: CenterExportKind, format: 'docx' | 'xlsx' | 'pdf') {
+    setBusy(`正在生成 ${format.toUpperCase()}…`);
+    try {
+      const built = buildCenterExport(kind, plan, data);
+      const now = new Date().toISOString();
+      await exportDocument({ id: `center-${kind}`, activityId: plan.id, toolId: `center-${kind}`, type: built.headers ? 'table' : 'text', name: built.name, category: '活动策划文件', text: built.text, headers: built.headers ?? [], rows: built.rows ?? [], createdAt: now, updatedAt: now, version: 1, source: 'center', manual: false, ai: false, formats: [format] }, format, plan.title);
+      setStatus('文件已生成，下载已开始');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '导出失败';
+      setStatus(message);
+      throw error;
+    } finally { setBusy(''); }
+  }
 
   const personFields=[{key:'name',label:'姓名或代号'},{key:'roles',label:'角色（逗号分隔）'},{key:'organization',label:'组织单位'},...(data.tables['people-fields']?.fields??[{key:'note',label:'备注'}])];
   function updatePeople(rows:import('./model').DataRow[]){
@@ -108,20 +130,54 @@ export default function WorkspaceHub({plan,apiKey,children,onPlanChange,onRestor
     void commit({...data,people,organizations});
   }
   const renderCard=(tool:NonNullable<ReturnType<typeof getDefinition>>)=> <article className="wb-tool-card" key={tool.id}><span className="wb-tool-icon"><Wrench size={18}/></span><span className="wb-badge">{data.tools.includes(tool.id)?'已启用':'可添加'}</span><h3>{tool.name}</h3><p>{tool.description}</p><div className="wb-card-foot"><span>{tool.kind==='text'?'文档模板':tool.kind==='table'?'数据表格':'专业工具'}</span><button type="button" onClick={()=>openTool(tool.id)}>{data.tools.includes(tool.id)?'打开工具':'添加并打开'} <ArrowRight size={14}/></button></div></article>;
-  return <div className="wb-hub">
-    <header className="wb-event-head"><div><span className="mini-label">ACTIVITY WORKSPACE</span><h1>{plan.title}</h1><div className="wb-meta"><span><CalendarDays size={15}/>{plan.brief.dateLabel||'日期待确认'}</span><span><MapPin size={15}/>{data.profile.location||'地点待填写'}</span><span className="wb-badge">{data.profile.status}</span></div></div><div className="wb-inline-actions"><button type="button" onClick={()=>setAssistantOpen(true)}><Sparkles size={16}/> AI 助手</button><button type="button" onClick={backup}>备份活动资料</button></div></header>
-    <nav className="wb-main-tabs wb-journey" aria-label="活动主流程">{groups.map((item,index)=><button key={item.id} type="button" className={item.items.includes(tab)?'active':''} aria-current={item.items.includes(tab)?'step':undefined} onClick={()=>setTab(item.id)}><span className="wb-journey-number">{index+1}</span><span>{item.id==='overview'?<LayoutDashboard size={17}/>:item.id==='plan'?<FileText size={17}/>:item.id==='analysis'?<Sparkles size={17}/>:<BarChart3 size={17}/>} {item.name}</span></button>)}</nav>
-    {groups.find(g=>g.items.includes(tab))?.items.length!>1&&<nav className="wb-subnav wb-branch" aria-label="当前阶段的功能分支">{groups.find(g=>g.items.includes(tab))!.items.map(id=>{const item=tabs.find(t=>t.id===id);const Icon=item?.icon??LayoutDashboard;return <button key={id} className={id===tab?'active':''} onClick={()=>setTab(id)}><Icon size={16}/>{item?.name??'现场指挥中心'}</button>;})}</nav>}
+  const statusTone=busy?'is-busy':/失败|异常|阻止|错误|不足/.test(status)?'is-error':/已保存|已生成|已下载|已撤销|已解除/.test(status)?'is-ok':'';
+  return <div className="oc-hub">
+    <header className="oc-topbar">
+      <div className="oc-topbar-main">
+        <span className="oc-topbar-label">活动组织中心</span>
+        <h1>{plan.title}</h1>
+        <div className="oc-topbar-meta">
+          <span className="oc-chip oc-chip-blue">{data.profile.status}</span>
+          <span><CalendarDays size={14}/>{plan.brief.dateLabel||plan.brief.date||'日期待确认'}</span>
+          <span><MapPin size={14}/>{data.profile.location||'地点待填写'}</span>
+          <span>{plan.brief.people.toLocaleString()} 人 · ¥{plan.brief.budget.toLocaleString()}</span>
+        </div>
+      </div>
+      <div className="oc-topbar-actions">
+        <span className={`oc-save-state ${statusTone}`} title={busy||status}><span className="oc-save-dot"/>{busy||status||'所有更改已保存'}</span>
+        <button className="oc-btn" type="button" disabled={!!busy} onClick={()=>void checkpoint()}>保存检查点</button>
+        <button className="oc-btn oc-btn-ai" type="button" onClick={()=>setAssistantOpen(true)}><Sparkles size={15}/>AI 助手</button>
+      </div>
+    </header>
+    <div className="oc-shell">
+      <nav className="oc-side" aria-label="活动组织中心模块">
+        <div className="oc-side-group">
+          <span className="oc-side-label">组织执行</span>
+          {primaryTabs.map(item=>{const Icon=item.icon;return <button key={item.id} type="button" className={`oc-side-btn ${tab===item.id?'active':''}`} aria-current={tab===item.id?'page':undefined} onClick={()=>setTab(item.id)}><Icon size={16}/>{item.name}</button>;})}
+        </div>
+        <details className="oc-side-advanced" open={advancedTabs.some(item=>item.id===tab)}>
+          <summary>更多工具</summary>
+          <div className="oc-side-group">
+            {advancedTabs.map(item=>{const Icon=item.icon;return <button key={item.id} type="button" className={`oc-side-btn ${tab===item.id?'active':''}`} aria-current={tab===item.id?'page':undefined} onClick={()=>setTab(item.id)}><Icon size={16}/>{item.name}</button>;})}
+          </div>
+        </details>
+      </nav>
+      <main className="oc-main">
+    {busy&&<div className="oc-notice oc-info" role="status">{busy}</div>}
+    {!busy&&status&&statusTone==='is-error'&&<div className="oc-notice oc-error" role="alert">{status}</div>}
     {(['analysis','live','review'] as const).filter(mode=>mode===tab).map(mode=><LifecyclePanel key={mode} mode={mode} plan={plan} data={data} onChange={commit} onRestore={p=>{if(p.workspace){setData(p.workspace);saveWorkspace(p.workspace);}onRestoreProject?.(p);}} onOpen={setTab}/>)}
-    {(status||busy)&&<p className={status.includes('失败')||status.includes('不足')||status.includes('异常')?'wb-notice error':'wb-save-status'} role="status">{busy||status}</p>}
     <div hidden={tab!=='simulation'}><SimulationLab key={plan.id} plan={plan} workspace={data} onApply={applySimulation} onSkip={()=>setTab('plan')} onOpenGame={onOpenGame} onAskAI={question=>{setFlowRequest({id:uid(),text:question});setAssistantOpen(true);}}/></div>
     {tab==='overview'&&<>
-      <div className="wb-section-heading"><div><h2>让好想法，有序落地。</h2><p>先确认活动资料，再选择需要的执行工具。</p></div><button className="primary" type="button" onClick={()=>setTab('plan')}>查看策划方案 <ArrowRight size={16}/></button></div>
-      <div className="wb-metrics">{[['实际报名',data.scene==='athletics'?data.athletics.athletes.filter(a=>a.status!=='退赛').length:(data.tables.registrations?.rows.length??0)],['已启用工具',data.tools.length],['活动文档',data.documents.length],['任务完成',`${completed}/${taskRows.length}`]].map(([label,value])=><div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
-      <div className="wb-overview-grid"><section className="wb-card"><h3>活动基本资料</h3><p className="wb-help">资料会自动带入文档，尚未填写的信息保留为待确认。</p><div className="wb-form-grid">{(['organizer','coorganizer','owner','location'] as const).map((key,i)=><label key={key}>{['主办单位','承办单位','活动负责人','具体地点'][i]}<input value={data.profile[key]} onChange={e=>commit({...data,profile:{...data.profile,[key]:e.target.value}})}/></label>)}<label>活动开始时间<input type="time" value={data.tables['activity-settings']?.rows[0]?.startTime??''} onChange={e=>commit(updateTable(data,'activity-settings',[{id:'settings',startTime:e.target.value}]))}/></label><label>活动状态<select value={data.profile.status} onChange={e=>commit({...data,profile:{...data.profile,status:e.target.value}})}>{PROJECT_STATUSES.map(v=><option key={v}>{v}</option>)}</select></label><label>专属工具场景<select value={data.scene} onChange={e=>commit({...data,scene:e.target.value as Scene})}>{SCENES.map(scene=><option key={scene.id} value={scene.id}>{scene.name}</option>)}</select></label></div></section>
-      </div>
-      {readError&&<button type="button" onClick={()=>{if(window.confirm('确认保留原始存档备份后，以当前空白资料重新保存？')){setReadError(false);setStatus('已解除保护，请重新填写并保存。');}}}>已备份原始存档，允许重新保存</button>}
+      <OrganizationCenter plan={plan} data={data} commit={commit} onModule={setTab} onPlanChange={onPlanChange} onOpenGame={onOpenGame} onExport={exportCenter} onBackup={backup} busy={busy}/>
+      {readError&&<div className="oc-notice oc-error" role="alert">当前存档读取异常，已阻止自动覆盖。请先确认已备份原始存档。<button className="oc-btn" type="button" onClick={()=>{if(window.confirm('确认保留原始存档备份后，以当前空白资料重新保存？')){setReadError(false);setStatus('已解除保护，请重新填写并保存。');}}}>已备份原始存档，允许重新保存</button></div>}
     </>}
+    {tab==='organization'&&<OrganizationPanel plan={plan} data={data} commit={commit} onModule={setTab}/>}
+    {tab==='tasks'&&<TasksPanel plan={plan} data={data} commit={commit}/>}
+    {tab==='schedule'&&<SchedulePanel data={data} commit={commit}/>}
+    {tab==='budget'&&<BudgetPanel plan={plan} data={data} commit={commit} onModule={setTab}/>}
+    {tab==='risks'&&<RisksPanel plan={plan} data={data} commit={commit}/>}
+    {tab==='site'&&<SitePanel plan={plan} data={data} onOpenGame={onOpenGame} onModule={setTab}/>}
+    {tab==='exports'&&<ExportsPanel onExport={exportCenter} onBackup={backup} onModule={setTab} busy={busy}/>}
     {tab==='plan'&&<PlanningFlow plan={plan} data={data} onChange={commit} onStageStatus={onStageStatus} onAiConfirm={onStageAiConfirm} onSelectModule={onSelectModule} onCheckpoint={onCheckpoint} onOpen={setTab} renderEditor={(id,index)=>isValidElement(children)?cloneElement(children as ReactElement<{guided?:boolean;focusedModuleId?:ModuleId;focusedBlockIndex?:number}>,{guided:true,focusedModuleId:id,focusedBlockIndex:index}):children}/>}
     {tab==='materials'&&<><OrganizerIdeaUpload plan={plan} workspace={data} onChange={commit}/><MaterialsCenter plan={plan} workspace={data} onChange={commit}/></>}
     {tab==='tools'&&<>
@@ -155,13 +211,15 @@ export default function WorkspaceHub({plan,apiKey,children,onPlanChange,onRestor
       <section className="wb-card"><h3>任务分工</h3><Grid name="任务" fields={[{key:'title',label:'任务'},{key:'owner',label:'负责人'},{key:'due',label:'完成期限',type:'date'},{key:'status',label:'状态',options:['未开始','进行中','已完成']},{key:'resources',label:'资源'},{key:'note',label:'备注'}]} rows={taskRows} onChange={rows=>commit(updateTable(data,'tasks',rows))}/></section>
       <details className="wb-card"><summary>执行流程与节点</summary><Grid name="流程" fields={[{key:'start',label:'开始',type:'time'},{key:'end',label:'结束',type:'time'},{key:'title',label:'活动环节'},{key:'owner',label:'负责人'},{key:'people',label:'参与人员'},{key:'venue',label:'场地'},{key:'equipment',label:'设备'},{key:'status',label:'状态',options:['待执行','进行中','已完成']},{key:'note',label:'备注'}]} rows={data.flow.map(node=>({...node,people:node.people.join(',')}))} onChange={rows=>commit({...data,flow:rows.map(row=>({id:row.id,start:row.start??'',end:row.end??'',title:row.title??'',owner:row.owner??'',people:(row.people??'').split(/[,，]/).filter(Boolean),venue:row.venue??'',equipment:row.equipment??'',status:row.status??'待执行',note:row.note??''}))})}/></details>
     </>}
-    {assistantOpen&&<div className="v3-assistant-overlay" onClick={()=>setAssistantOpen(false)}><div className="v3-assistant-drawer" onClick={e=>e.stopPropagation()}><button className="v3-assistant-close" onClick={()=>setAssistantOpen(false)}>关闭 AI 助手</button><AssistantPanel plan={plan} workspace={data} apiKey={apiKey} onApply={acceptAssistant} onUndo={undoAssistant} request={flowRequest ?? assistantRequest}/></div></div>}
+    {assistantOpen&&<div className="v3-assistant-overlay" onClick={()=>setAssistantOpen(false)}><div className="v3-assistant-drawer" onClick={e=>e.stopPropagation()}><button className="v3-assistant-close" onClick={()=>setAssistantOpen(false)}>关闭 AI 助手</button><AssistantPanel plan={plan} workspace={data} apiKey={apiKey} onApply={acceptAssistant} onUndo={undoAssistant} request={flowRequest ?? assistantRequest} focus={allTabs.find(item=>item.id===tab)?.name}/></div></div>}
     {tab==='stats'&&<>
       <div className="wb-section-heading"><div><h2>活动数据统计</h2><p>只基于已登记和录入的数据计算，空数据不生成虚构成果。</p></div></div>
-      <div className="wb-metrics">{[['登记人员',data.people.length],['任务完成率',taskRows.length?`${Math.round(completed/taskRows.length*100)}%`:'暂无任务'],['运动员',data.athletics.athletes.length],['有效成绩',data.athletics.results.filter(row=>row.status==='有效'&&row.value.trim()).length],['演出总分钟',orderedAgenda(tableRows(data,'performances'),'09:00',true).reduce((sum,item)=>sum+item.duration,0)],['实际志愿服务小时',tableRows(data,'volunteers').reduce((sum,row)=>sum+Math.max(0,Number(row.f5)||0),0)]].map(([label,value])=><div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
+      <div className="wb-metrics">{[['登记人员',data.people.length],['任务完成率',allTaskCount?`${Math.round(allTaskDone/allTaskCount*100)}% (${allTaskDone}/${allTaskCount})`:'暂无任务'],['运动员',data.athletics.athletes.length],['有效成绩',data.athletics.results.filter(row=>row.status==='有效'&&row.value.trim()).length],['演出总分钟',orderedAgenda(tableRows(data,'performances'),'09:00',true).reduce((sum,item)=>sum+item.duration,0)],['实际志愿服务小时',tableRows(data,'volunteers').reduce((sum,row)=>sum+Math.max(0,Number(row.f5)||0),0)]].map(([label,value])=><div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
       <section className="wb-card"><h3>数据核查</h3>{[...validateEntries(data.athletics),...scheduleConflicts(data.athletics),...resultIssues(data.athletics)].length?<ul className="wb-errors">{[...validateEntries(data.athletics),...scheduleConflicts(data.athletics),...resultIssues(data.athletics)].map((issue,i)=><li key={i}>{issue}</li>)}</ul>:<p className="wb-help"><CheckCircle2 size={16}/> 当前未发现已检测范围内的田径数据冲突；正式规程仍需人工核查。</p>}<p>已登记队伍 {sportsData(data).teams.length}；已有可计算评审项目 {scoringData(data).rankings.filter(row=>!row.pending).length}。</p></section>
       {data.athletics.athletes.length>0&&<section className="wb-card"><h3>团体积分</h3>{teamStandings(data.athletics).map(row=><div className="wb-stat-row" key={row.team}><span>{row.rank}. {row.team}</span><progress max={Math.max(1,...teamStandings(data.athletics).map(r=>r.points))} value={row.points}/><strong>{row.points} 分</strong></div>)}</section>}
       <section className="wb-card"><h3>预算执行</h3><p>资料中心实际支出 ¥{expenseStats(data,plan.brief.budget).used.toLocaleString()} · 剩余 ¥{expenseStats(data,plan.brief.budget).remaining.toLocaleString()}</p><p>计划预算 ¥{plan.brief.budget.toLocaleString()} · 已登记实际支出 ¥{tableRows(data,'business-budget').reduce((sum,row)=>sum+Math.max(0,Number(row.f2)||0),0).toLocaleString()}</p>{tableRows(data,'business-budget').reduce((sum,row)=>sum+Math.max(0,Number(row.f2)||0),0)>plan.brief.budget&&<p className="wb-errors">实际支出超出计划预算，请核查票据与审批。</p>}</section>
     </>}
+      </main>
+    </div>
   </div>;
 }

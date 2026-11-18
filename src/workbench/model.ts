@@ -5,10 +5,14 @@ export interface DataRow { id: string; [key: string]: string }
 export interface DataTable { id: string; name: string; fields: Field[]; rows: DataRow[]; revision: number; hiddenFields?: string[] }
 export interface Person { id: string; name: string; roles: string[]; organizationId?: string; fields: Record<string, string> }
 export interface Organization { id: string; name: string; kind: '组织单位' | '参赛队伍' | '演出团队' | '工作小组' | '部门' | '志愿者团队' }
-export interface WorkGroupTask { id:string; title:string; content:string; owner:string; collaborators:string; start:string; due:string; resources:string; budget:number; dependsOn:string; deliverable:string; status:'待开始'|'进行中'|'已完成'|'已延期' }
-export interface WorkGroup { id:string; name:string; leader:string; members:string; contact:string; goal:string; duties:string; reporting:string; tasks:WorkGroupTask[] }
-export interface FlowNode { id: string; start: string; end: string; title: string; owner: string; people: string[]; venue: string; equipment: string; status: string; note: string }
-export interface ActivityProfile { organizer: string; coorganizer: string; owner: string; status: string; location: string }
+export type TaskStatus='未开始'|'进行中'|'已完成'|'遇到问题'|'已取消'|'待开始'|'已延期';
+export type BudgetLineSource='expense'|'material';
+export type TaskPriority='高'|'中'|'低';
+export interface WorkGroupTask { id:string; title:string; content:string; owner:string; collaborators:string; start:string; due:string; resources:string; budget:number; dependsOn:string; deliverable:string; status:TaskStatus; priority?:TaskPriority }
+export interface WorkGroup { id:string; name:string; leader:string; members:string; contact:string; goal:string; duties:string; reporting:string; reportsTo?:string; tasks:WorkGroupTask[] }
+export interface FlowNode { id: string; start: string; end: string; title: string; owner: string; department?: string; people: string[]; venue: string; equipment: string; status: string; note: string }
+export interface ActivityProfile { organizer: string; coorganizer: string; owner: string; coordinator?: string; status: string; location: string }
+export interface RiskItem { id:string; title:string; description:string; scope:string; likelihood:'低'|'中'|'高'; impact:'低'|'中'|'高'; departmentId:string; prevention:string; response:string; confirmed:boolean }
 export interface EventProject { id: string; name: string; group: string; kind: 'track' | 'field' | 'height'; relay: boolean; lanes: number; duration: number; capacity: number; rounds: 'final' | 'heats-final'; venue: string; officials: string; start: string; tieRule: 'shared' | 'manual' }
 export interface Athlete { status?: '已报名' | '退赛'; id: string; number: string; name: string; team: string; group: string; projects: string[]; seed: string }
 export type ResultStatus = '有效' | '未出赛' | '弃权' | '犯规' | '无成绩';
@@ -18,7 +22,7 @@ export interface AthleticsData { projects: EventProject[]; athletes: Athlete[]; 
 export type DocumentCategory = '活动策划文件' | '报名与人员资料' | '活动流程文件' | '任务分工文件' | '预算与物资文件' | '活动专属文件' | '成绩与统计文件' | '总结与反馈文件';
 export interface ActivityDocument { id: string; activityId: string; toolId: string; type: 'text' | 'table'; name: string; category: DocumentCategory; text: string; headers: string[]; rows: string[][]; createdAt: string; updatedAt: string; version: number; source: string; manual: boolean; ai: boolean; formats: string[] }
 export interface CustomTemplate { id: string; name: string; text: string; fields: Field[]; kind: 'text' | 'table' }
-export interface Workspace { planningReview?: Record<string, { status: 'done' | 'skip'; fingerprint: string }>; planningChats?:Record<string,{question:string;answer:string}[]>; workGroups?:WorkGroup[]; version: 1; activityId: string; scene: Scene; profile: ActivityProfile; people: Person[]; organizations: Organization[]; flow: FlowNode[]; tools: string[]; tables: Record<string, DataTable>; documents: ActivityDocument[]; athletics: AthleticsData; customTemplates: CustomTemplate[] }
+export interface Workspace { planningReview?: Record<string, { status: 'done' | 'skip'; fingerprint: string }>; planningChats?:Record<string,{question:string;answer:string}[]>; workGroups?:WorkGroup[]; risks?:RiskItem[]; version: 1; activityId: string; scene: Scene; profile: ActivityProfile; people: Person[]; organizations: Organization[]; flow: FlowNode[]; tools: string[]; tables: Record<string, DataTable>; documents: ActivityDocument[]; athletics: AthleticsData; customTemplates: CustomTemplate[] }
 export interface ToolDefinition { id: string; name: string; description: string; scene: Scene; kind: 'text' | 'table' | 'athletics' | 'sports' | 'performance' | 'scoring'; category: DocumentCategory; fields?: Field[]; body?: string; source?: string }
 export function uid() { return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`; }
 export function detectScene(plan: EventPlan): Scene {
@@ -29,5 +33,5 @@ export function detectScene(plan: EventPlan): Scene {
 export function createWorkspace(plan: EventPlan): Workspace {
   const timeline=plan.modules.find(module=>module.id==='program')?.blocks.find(block=>block.kind==='timeline');
   const flow:FlowNode[]=timeline?.kind==='timeline'?timeline.entries.map(entry=>({id:uid(),start:entry.time.split(/[–—-]/)[0]??'',end:entry.time.split(/[–—-]/)[1]??'',title:entry.title,owner:'',people:[],venue:plan.brief.venueNote||'',equipment:'',status:'待执行',note:entry.detail??''})):[];
-  return { version: 1, activityId: plan.id, scene: detectScene(plan), profile: { organizer: '', coorganizer: '', owner: '', status: '筹备中', location: plan.brief.venueNote || '' }, people: [], organizations: [], workGroups:[], flow, tools: [], tables: {}, documents: [], customTemplates: [], athletics: { projects: [], athletes: [], results: [], races: [], scheduleSource: '', restMinutes: 30, maxEntries: 3, points: [9,7,6,5,4,3,2,1], relayFactor: 2, teamTie: 'shared', tiePoints: 'average', awardPlaces: 8 } };
+  return { version: 1, activityId: plan.id, scene: detectScene(plan), profile: { organizer: '', coorganizer: '', owner: '', coordinator: '', status: '筹备中', location: plan.brief.venueNote || '' }, people: [], organizations: [], workGroups:[], risks:[], flow, tools: [], tables: {}, documents: [], customTemplates: [], athletics: { projects: [], athletes: [], results: [], races: [], scheduleSource: '', restMinutes: 30, maxEntries: 3, points: [9,7,6,5,4,3,2,1], relayFactor: 2, teamTie: 'shared', tiePoints: 'average', awardPlaces: 8 } };
 }

@@ -1,4 +1,5 @@
 import { createWorkspace, type CustomTemplate, type Workspace } from './model';
+import { normalizeWorkspace } from './center';
 import type { EventPlan } from '../types';
 export const WORKSPACE_PREFIX = 'activity-tools-v1:';
 type Store = Pick<Storage, 'getItem' | 'setItem'>;
@@ -8,7 +9,7 @@ export function loadWorkspace(plan: EventPlan, storage: Store = localStorage): {
     if (!raw) return { data: createWorkspace(plan), error: '' };
     const data = JSON.parse(raw) as Workspace;
     if (data.version !== 1 || data.activityId !== plan.id || !Array.isArray(data.documents) || !Array.isArray(data.people) || !Array.isArray(data.tools) || !data.athletics || !data.tables) throw new Error();
-    return { data, error: '' };
+    return { data: normalizeWorkspace(data), error: '' };
   } catch { return { data: createWorkspace(plan), error: '活动资料读取失败，原始存档保留。请先导出备份并检查后再保存。' }; }
 }
 export function saveWorkspace(data: Workspace, storage: Store = localStorage) {
