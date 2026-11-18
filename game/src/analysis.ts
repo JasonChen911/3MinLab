@@ -305,13 +305,13 @@ function towardCenter(point: Point, distance: number): Point {
   return {x: Math.round(point.x - point.x / length * distance), z: Math.round(point.z - point.z / length * distance)};
 }
 
-function tryAdd(layout: Layout, items: Item[], kind: Kind, prefer: Point, radius: number): Item | null {
+function tryAdd(layout: Layout, items: Item[], kind: Kind, prefer: Point, radius: number, scale = 1): Item | null {
   let serial = items.length + 1;
   for (const point of spotCandidates(prefer, radius)) {
     let id = `opt-${kind}-${serial}`;
     while (items.some(item => item.id === id)) id = `opt-${kind}-${++serial}`;
     const item: Item = {
-      id, kind, x: point.x, z: point.z, rotation: 0, scale: 1, height: 1,
+      id, kind, x: point.x, z: point.z, rotation: 0, scale, height: 1,
       ...(TENTS.includes(kind) ? {anchored: true} : {}),
     };
     if (placement({...layout, items}, item, 'unlimited').level === 'invalid') continue;
@@ -344,8 +344,8 @@ export function optimizeLayout(layout: Layout): OptimizationPlan {
   const staff = Math.max(0, layout.params.staff) + Math.max(0, layout.volunteers ?? 0);
   const budgetLeft = () => layout.budgetMode === 'challenge' ? layout.activity.budget - cost(items) : Infinity;
   const afford = (item: Item) => itemCost(item) <= budgetLeft();
-  const addItem = (kind: Kind, prefer: Point, radius: number, reason: string) => {
-    const item = tryAdd(layout, items, kind, prefer, radius);
+  const addItem = (kind: Kind, prefer: Point, radius: number, reason: string, scale = 1) => {
+    const item = tryAdd(layout, items, kind, prefer, radius, scale);
     if (!item || !afford(item)) return null;
     items.push(item);
     changes.push({id: `add-${item.id}`, kind: 'add', label: `新增${CATALOG[kind].name}`, reason, cost: itemCost(item), item});
@@ -360,6 +360,20 @@ export function optimizeLayout(layout: Layout): OptimizationPlan {
         id: `anchor-${item.id}`, kind: 'anchor', label: `固定${CATALOG[item.kind].name}`,
         reason: '户外未固定帐篷会在大风中损失有效遮雨容量', cost: 0, itemId: item.id, item: items[index],
       });
+    }
+  }
+
+  if (facility.seating < layout.activity.people * .55) {
+    const target = Math.ceil(layout.activity.people * .85);
+    const seatCapacity = Math.max(1, CATALOG.bleachers.capacity ?? 80);
+    const scale = Math.round(Math.max(1, Math.min(2.6, Math.sqrt(Math.max(1, target - facility.seating) / (2 * seatCapacity)))) * 10) / 10;
+    const perSeat = Math.round(seatCapacity * scale * scale);
+    let seatingNow = facility.seating;
+    for (let i = 0; i < 4 && seatingNow < target; i++) {
+      const prefer = {x: (i % 2 ? 1 : -1) * layout.size * .26, z: layout.size * (i < 2 ? .18 : -.18)};
+      const added = addItem('bleachers', prefer, 14, `座位仅覆盖 ${Math.round(seatingNow / Math.max(1, layout.activity.people) * 100)}%，按参与人数补充观众席`, scale);
+      if (!added) break;
+      seatingNow += perSeat;
     }
   }
 

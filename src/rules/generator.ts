@@ -205,6 +205,60 @@ const LAYERS: { name: string; pattern: RegExp }[] = [
 
 const layerOf = (role: string) => LAYERS.find((layer) => layer.pattern.test(role))!.name;
 
+/** AI 初稿只给岗位名称，按岗位语义补齐人数配比与职责 */
+const ROLE_PROFILES: { pattern: RegExp; fixed: number; perPeople: number; min: number; max: number; duty: string }[] = [
+  { pattern: /总指挥|总协调|总导演|项目总监|负责人|主席|召集人/, fixed: 1, perPeople: 0, min: 1, max: 2, duty: '整体调度、对外沟通、启动应急预案' },
+  { pattern: /医疗|急救|医护|救护/, fixed: 2, perPeople: 500, min: 2, max: 12, duty: '现场急救、转运对接、健康观察' },
+  { pattern: /安保|安全|秩序|消防/, fixed: 2, perPeople: 200, min: 2, max: 30, duty: '入口管控、动线隔离、人流疏导' },
+  { pattern: /志愿|引导|签到|服务|接待/, fixed: 4, perPeople: 30, min: 4, max: 80, duty: '引导、签到、补给与机动补位' },
+  { pattern: /裁判|评委|评审|计时|统分/, fixed: 3, perPeople: 40, min: 3, max: 40, duty: '执裁、计时记分与争议裁定' },
+  { pattern: /竞赛|赛程|节目|内容|策划|学术|编导/, fixed: 2, perPeople: 60, min: 2, max: 30, duty: '流程编排、现场执行与环节衔接' },
+  { pattern: /后勤|物资|补给|会务|采购|保障/, fixed: 2, perPeople: 100, min: 2, max: 15, duty: '物资采购、补给、布场与撤场' },
+  { pattern: /布置|巡检|搭建|布展/, fixed: 2, perPeople: 100, min: 2, max: 15, duty: '场地/赛道布置、巡检与恢复' },
+  { pattern: /宣传|媒体|摄影|直播|传播|票务/, fixed: 1, perPeople: 200, min: 1, max: 6, duty: '摄影摄像、内容发布与媒体对接' },
+  { pattern: /技术|音响|灯光|设备|舞台/, fixed: 1, perPeople: 150, min: 1, max: 8, duty: '设备调试、现场播放与备用方案' },
+];
+const DEFAULT_ROLE_PROFILE = { pattern: /$^/, fixed: 2, perPeople: 100, min: 2, max: 12, duty: '现场执行、动线引导与突发补位' };
+const profileOf = (role: string) => ROLE_PROFILES.find((profile) => profile.pattern.test(role));
+
+function mergeDraftRoles(names: string[], base: RoleTemplate[]): RoleTemplate[] {
+  const used = new Set<RoleTemplate>();
+  const merged: RoleTemplate[] = [];
+  for (const raw of names) {
+    const name = raw.trim();
+    if (!name || merged.some((role) => role.role === name)) continue;
+    const profile = profileOf(name) ?? DEFAULT_ROLE_PROFILE;
+    const matched =
+      base.find((role) => !used.has(role) && role.role === name) ??
+      base.find((role) => !used.has(role) && (role.role.includes(name) || name.includes(role.role))) ??
+      base.find((role) => !used.has(role) && profileOf(role.role) === profile);
+    merged.push({
+      role: name,
+      fixed: matched?.fixed ?? profile.fixed,
+      perPeople: matched?.perPeople ?? profile.perPeople,
+      min: matched?.min ?? profile.min,
+      max: matched?.max ?? profile.max,
+      duty: matched?.duty ?? profile.duty,
+    });
+    if (matched) used.add(matched);
+  }
+  // 风险章节会点名医疗与安保；AI 初稿漏掉时必须补齐，避免方案自相矛盾
+  base.filter((role) => !used.has(role) && /医疗|急救|安保|安全/.test(role.role)).forEach((role) => merged.push(role));
+  return merged.length ? merged : base;
+}
+
+function ensureSafetyRoles(roles: RoleTemplate[], people: number): RoleTemplate[] {
+  if (people < 300) return roles;
+  const next = [...roles];
+  if (!next.some((role) => /医疗|急救|医护|救护/.test(role.role))) {
+    next.push({ role: '医疗与急救组', fixed: 1, perPeople: 500, min: 1, max: 12, duty: '现场急救、转运对接、健康观察' });
+  }
+  if (!next.some((role) => /安保|安全|秩序|消防/.test(role.role))) {
+    next.push({ role: '安全与秩序组', fixed: 2, perPeople: 200, min: 2, max: 30, duty: '入口管控、动线隔离、人流疏导' });
+  }
+  return next;
+}
+
 const OWNER_PATTERNS: Record<RoleHint, RegExp> = {
   lead: /总指挥|总协调|项目总监|总导演|召集人|赛事负责人|项目负责人|主席|总监/,
   content: /策划|节目|竞赛|学术|评委|评审|主持|讲解|编导|课程|教研/,
@@ -220,6 +274,16 @@ function ownerFor(hint: RoleHint, staff: StaffRow[]): string {
   if (hit) return hit.role;
   const lead = staff.find((row) => OWNER_PATTERNS.lead.test(row.role));
   return lead?.role ?? staff[0]?.role ?? '总协调';
+}
+
+/** 风险表里的责任岗位必须能在人员架构中找到 */
+function staffOwner(owner: string, staff: StaffRow[]): string {
+  if (!owner || staff.some((row) => row.role === owner)) return owner;
+  const direct = staff.find((row) => row.role.includes(owner) || owner.includes(row.role));
+  if (direct) return direct.role;
+  const profile = profileOf(owner);
+  const byKind = profile ? staff.find((row) => profile.pattern.test(row.role)) : undefined;
+  return byKind?.role ?? owner;
 }
 
 function isoPlusDays(iso: string, days: number) {
@@ -274,18 +338,33 @@ function materialMeta(name: string): { purpose: string; priority: '高' | '中' 
   return { purpose: '现场使用', priority: '中', owner: 'logistics' };
 }
 
+const CONCURRENT_PHASE = /值守|巡逻|收容|同步|并行|全程|赛道保障|医疗站|补给站/;
+const isConcurrentPhase = (name: string) => CONCURRENT_PHASE.test(name) && !/布置|搭建|准备|撤除|清理|发放/.test(name);
+
 function buildTimeline(
   agenda: { name: string; share: number; detail: string }[],
   duration: number,
   startMinute: number,
 ): TimelineEntry[] {
-  const totalShare = agenda.reduce((sum, item) => sum + item.share, 0) || 1;
   const end = startMinute + duration;
+  const active = agenda.filter((segment) => !isConcurrentPhase(segment.name));
+  const totalShare = active.reduce((sum, item) => sum + item.share, 0) || 1;
   let cursor = startMinute;
+  let activeIndex = 0;
   const entries: TimelineEntry[] = [];
 
-  agenda.forEach((segment, index) => {
-    const isLast = index === agenda.length - 1;
+  agenda.forEach((segment) => {
+    // 补给、医疗值守等保障环节与主流程并行，不单独占用串行时段
+    if (isConcurrentPhase(segment.name)) {
+      entries.push({
+        time: `${clock(cursor)}–${clock(end)}`,
+        title: `${segment.name}（全程并行）`,
+        detail: `${segment.detail} 本环节与主流程并行运行，不单独占用时段。`,
+      });
+      return;
+    }
+    const isLast = activeIndex === active.length - 1;
+    activeIndex += 1;
     const remaining = end - cursor;
     const length = isLast ? Math.max(5, remaining) : round5((duration * segment.share) / totalShare);
     const capped = isLast ? remaining : Math.min(length, Math.max(5, remaining - 5));
@@ -299,9 +378,12 @@ function buildTimeline(
   return entries;
 }
 
-function quantityFor(name: string, people: number, staff: number): string {
+function quantityFor(name: string, people: number, staff: number, categoryId = '', family = ''): string {
   const ceil = Math.ceil;
-  if (/水|饮水/.test(name)) return `${ceil(people * 1.2)} 瓶`;
+  // 完赛物资按报名人数备货，不能按获奖比例估算
+  if (/完赛(奖牌|奖章|纪念|证书)|参赛包|参赛服|T恤/.test(name)) return `${ceil(people * 1.05)} 份`;
+  if (categoryId === 'sports-marathon' && /奖牌|奖章/.test(name)) return `${ceil(people * 1.05)} 份`;
+  if (/水|饮水/.test(name)) return `${ceil((people + staff) * (family === 'sports' || categoryId === 'sports-marathon' ? 2 : 1.2))} 瓶`;
   if (/胸牌|号码布|工作证|证件/.test(name)) return `${people + staff} 份`;
   if (/对讲机/.test(name)) return `${Math.max(2, ceil(staff / 8))} 台`;
   if (/桌椅|桌布/.test(name)) return `${Math.max(4, ceil(people * 0.6))} 套`;
@@ -397,7 +479,7 @@ function buildAudience(ctx: BuildContext): Block[] {
     ['核心参与者', `${brief.people} 人`, brief.audience],
     ['工作人员', `${staffTotal} 人`, '含执行、引导、后勤与志愿者'],
   ];
-  if (guests > 0) rows.push(['嘉宾 / 媒体', `${guests} 人`, GUEST_LABEL[category.family] ?? GUEST_LABEL.generic]);
+  if (guests > 0) rows.push(['嘉宾 / 媒体', `${guests} 人`, `${GUEST_LABEL[category.family] ?? GUEST_LABEL.generic}（按参与人数估算，可在需求中调整）`]);
   rows.push(['合计在场', `${brief.people + staffTotal + guests} 人`, '按最大同时在场上限估算']);
 
   const recruitment: Record<string, string> = {
@@ -569,7 +651,7 @@ function buildResources(ctx: BuildContext): Block[] {
     const meta = materialMeta(name);
     return [
       name,
-      quantityFor(name, brief.people, ctx.staffTotal),
+      quantityFor(name, brief.people, ctx.staffTotal, ctx.category.id, ctx.category.family),
       meta.purpose,
       meta.priority,
       ownerFor(meta.owner, ctx.staff),
@@ -811,7 +893,7 @@ function buildRisk(ctx: BuildContext): Block[] {
     riskLevel(risk.likelihood, risk.impact),
     risk.mitigation,
     risk.contingency,
-    risk.owner,
+    staffOwner(risk.owner, staff),
   ]);
 
   const blocks: Block[] = [
@@ -966,7 +1048,7 @@ export function generatePlan(brief: EventBrief): EventPlan {
   const knowledge:FamilyKnowledge = draft ? {
     ...baseKnowledge,
     agenda: draft.flow.length ? draft.flow.map((name,index)=>({name,share:1/draft.flow.length,detail:`AI 初稿建议环节 ${index+1}；由组织者核对时长和执行方式。`})) : baseKnowledge.agenda,
-    roles: draft.staff.length ? draft.staff.map(role=>({role,fixed:1,perPeople:0,min:1,max:10,duty:'AI 初稿建议岗位，职责待确认'})) : baseKnowledge.roles,
+    roles: draft.staff.length ? mergeDraftRoles(draft.staff, baseKnowledge.roles) : baseKnowledge.roles,
     resources: draft.materials.length ? draft.materials : baseKnowledge.resources,
   } : baseKnowledge;
   const scale = scaleOf(brief.people);
@@ -982,10 +1064,21 @@ export function generatePlan(brief: EventBrief): EventPlan {
     categoryLabel: category.label,
   };
 
-  const staff = computeStaff(knowledge.roles, brief.people, brief.modifiers?.staffScale ?? 1);
+  const staff = computeStaff(ensureSafetyRoles(knowledge.roles, brief.people), brief.people, brief.modifiers?.staffScale ?? 1);
   const staffTotal = staff.reduce((sum, row) => sum + row.count, 0);
-  const guestRatio = GUEST_WEIGHT[category.id] ?? 0.03;
-  const guests = category.family === 'social' ? 0 : Math.max(2, Math.round(brief.people * guestRatio));
+  // 没有依据就不虚增嘉宾：只有类型本身需要嘉宾/媒体，或组织者明确提到时才估算
+  const guestRatio = GUEST_WEIGHT[category.id];
+  const mentionsGuests = /嘉宾|领导|媒体|赞助|评委|投资人/.test([
+    brief.idea,
+    brief.audience,
+    brief.goal,
+    ...(brief.aiDraft?.conversation ?? []).map((turn) => turn.answer),
+    ...Object.values(brief.aiDraft?.stageAnswers ?? {}).flat().map((turn) => turn.answer),
+  ].join(' '));
+  const guests = category.family === 'social' ? 0
+    : guestRatio !== undefined ? Math.max(2, Math.round(brief.people * guestRatio))
+    : mentionsGuests ? Math.max(2, Math.round(brief.people * 0.03))
+    : 0;
   const startHour = START_HOUR[category.id] ?? 9;
   const startMinute = startHour * 60;
   const schedule = buildTimeline(knowledge.agenda, brief.durationMinutes, startMinute);
